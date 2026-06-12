@@ -180,17 +180,21 @@ TD-native undo:
 - [x] 10k-cell paste stress: 1000×10 grow-paste in 26ms, undo in
       26ms (mock); TD-side 1k-row structural op 6.8ms
 
-### M5 — Column formats & callbacks (Lister parity, re-scoped)
-- [ ] Lister-style callbacks DAT on the comp: onSelectRow /
-      onSelectCell / onEditCell / onRowsMoved etc., named to mirror
-      ListerUI where it makes sense — the scripting hook for using
-      the editor as a UI component
-- [ ] Per-column format views, starting with `checkbox`: empty or 0
-      renders unchecked, 1 renders checked; a single click immediately
-      toggles 0↔1 and writes the cell (empty becomes 1 — no edit mode,
-      no double-click). Format assignment via header right-click;
-      stored as view state (per-table spec when M6 lands). Numeric/
-      color-swatch formats follow the same mechanism later
+### M5 — Column formats & callbacks (Lister parity, re-scoped)  ✓ DONE 2026-06-12
+- [x] Lister-style callbacks: user-owned `callbacks` textDAT (template
+      created once, never rewritten) + `Callbackdat` OP par defaulting
+      to it. Ext calls onSelect(rows,c0,c1) / onEdit(edits,prev) /
+      onStructure(kind,msg) / onTargetChange(path); every info dict
+      carries ownerComp + target. Verified live through the real WS
+      dispatch with a probe DAT — all payloads correct.
+- [x] `checkbox` column format: header menu "Checkbox format" toggle;
+      ''/0 renders ☐, anything else ☑; single click (and Space on the
+      active cell) immediately toggles 0↔1, empty → 1 — no edit mode,
+      dblclick suppressed. View state in localStorage
+      (`tdtable:<path>:fmt`), follows column drag-reorder like widths.
+      Verified live on Vincent's "Check Box" column in define
+      (click flipped the DAT 0→1, TD-undoable). Numeric/color-swatch
+      formats ride the same colFmt mechanism later.
 
 ### M6 — Workflow & persistence
 - [ ] ctrl.t workflow documented + helper: `ext.Open(path)` retargets and
@@ -214,6 +218,24 @@ TD-native undo:
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1p (M5: checkbox column format + Lister-style callbacks)
+- Per-column format views (`colFmt`, localStorage `tdtable:<path>:fmt`,
+  follows column drag-reorder like widths). First format: `checkbox` —
+  ''/'0' ☐, else ☑; plain click or Space toggles 0↔1 immediately
+  (empty → 1), writes through localEdit (client+TD undoable, logged);
+  dblclick suppressed on checkbox cells. Assigned via header
+  right-click ("✓ Checkbox format" when active).
+- Lister-style callbacks: `_callback(name, info)` resolves the new
+  Callbackdat OP par (defaults to a user-owned in-comp `callbacks`
+  textDAT, template created once and never rewritten). Hooks:
+  onSelect / onEdit (with prev values) / onStructure / onTargetChange.
+  Errors are debug-reported, never raised into the editor.
+- Verified: mock (assign, click/space toggle cycle, no-edit-on-
+  dblclick, persistence) and live TD (probe DAT recorded all callback
+  payloads through the real WS dispatch; Vincent's "Check Box" column
+  in define toggled 0→1 from a click in the webrender — screenshot —
+  then restored via TD undo).
 
 ### 2026-06-12 — Session 1o (RFE round 4: in-TD cursors, mac text-editing semantics, real fonts)
 - **In-TD cursor changes work now.** webrenderTOP renders offscreen, so

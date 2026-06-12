@@ -233,6 +233,34 @@ class TableEditorExt:
 		"\t\tctrl, alt, cmd)\n"
 		"\treturn\n")
 
+	# user-editable callbacks DAT template — created once, NEVER rewritten
+	# (unlike the canonical callback DATs above, the user owns this text)
+	_CB_TEXT = (
+		'"""TableEditor user callbacks (Lister-style).\n\n'
+		'Point the Callback DAT par at any DAT defining these functions.\n'
+		'Every info dict carries ownerComp (the TableEditor comp) and\n'
+		'target (the table DAT). All r/c are DAT coordinates.\n'
+		'"""\n'
+		'\n'
+		'# def onSelect(info):\n'
+		'#     """Selection changed. info: rows (DAT row indices),\n'
+		'#     c0, c1 (column span of the active rect)."""\n'
+		'#     pass\n'
+		'\n'
+		'# def onEdit(info):\n'
+		'#     """Cells written. info: edits [{r,c,v}], prev [(r,c,old)]."""\n'
+		'#     pass\n'
+		'\n'
+		'# def onStructure(info):\n'
+		'#     """Table shape changed. info: kind (insertrows/deleterows/\n'
+		'#     moverows/insertcols/deletecols/movecols/reorder/replace),\n'
+		'#     msg (the raw op)."""\n'
+		'#     pass\n'
+		'\n'
+		'# def onTargetChange(info):\n'
+		'#     """Editor retargeted. info: path."""\n'
+		'#     pass\n')
+
 	def _ensureSetup(self):
 		comp = self.ownerComp
 		# pars added after the initial build land on the main page here
@@ -247,6 +275,15 @@ class TableEditorExt:
 				p = mainPage.appendToggle('Displaylog',
 										  label='Display Log')[0]
 				p.default = p.val = False
+			cb = comp.op('callbacks')
+			if cb is None:
+				cb = comp.create(textDAT, 'callbacks')
+				cb.nodeX, cb.nodeY = 0, -400
+				cb.text = self._CB_TEXT
+			if getattr(comp.par, 'Callbackdat', None) is None:
+				p = mainPage.appendOP('Callbackdat',
+									  label='Callback DAT')[0]
+				p.val = './callbacks'
 		except Exception as e:
 			debug('TableEditor: main par setup failed: %s' % e)
 		# Style page (idempotent, per-par: new pars append on reinit)
@@ -395,6 +432,8 @@ class TableEditorExt:
 		self._snap = self._read(dat)
 		self.OnSelection(None)  # selection coords from the old table are stale
 		self._broadcastTable()
+		self._callback('onTargetChange',
+					   {'path': dat.path if dat is not None else ''})
 
 	def Refresh(self):
 		"""Re-snapshot and rebroadcast (Refresh pulse / Headerrow change)."""
@@ -641,6 +680,9 @@ class TableEditorExt:
 				# parexec valuechange fires Refresh -> broadcast
 			elif t == 'settable':
 				self.ownerComp.par.Targetop = str(msg.get('path', ''))
+			if t in ('insertrows', 'deleterows', 'moverows', 'insertcols',
+					 'deletecols', 'movecols', 'reorder', 'replace'):
+				self._callback('onStructure', {'kind': t, 'msg': msg})
 		except Exception as e:
 			debug('TableEditor: %s failed: %s' % (t, e))
 			self._sendTo(client, {'t': 'error', 'msg': '%s: %s' % (t, e)})
@@ -650,6 +692,25 @@ class TableEditorExt:
 		if dat is None or not self._editable(dat):
 			return None
 		return dat
+
+	def _callback(self, name, info):
+		"""Lister-style user callbacks: resolve the Callbackdat par to a
+		module and call `name(info)` if defined there. info always carries
+		ownerComp and target. Errors are reported, never raised."""
+		try:
+			par = getattr(self.ownerComp.par, 'Callbackdat', None)
+			dat = par.eval() if par is not None else None
+			if dat is None:
+				return
+			fn = getattr(dat.module, name, None)
+			if fn is None:
+				return
+			info = dict(info)
+			info['ownerComp'] = self.ownerComp
+			info['target'] = self._target()
+			fn(info)
+		except Exception as e:
+			debug('TableEditor: callback %s failed: %s' % (name, e))
 
 	def _registerUndo(self, name, info):
 		"""One TD-native undo block per ext write (see _undoRestore)."""
@@ -681,6 +742,7 @@ class TableEditorExt:
 				 'redo': [(a['r'], a['c'], a['v']) for a in applied]})
 			self.rev += 1
 			self._broadcast({'t': 'delta', 'rev': self.rev, 'edits': applied})
+			self._callback('onEdit', {'edits': applied, 'prev': old})
 
 	# Structural ops transform the snapshot in Python and rewrite the DAT
 	# wholesale (clear + appendRow): version-proof vs uncertain
@@ -834,6 +896,7 @@ class TableEditorExt:
 			for r in rows:
 				rowsDat.appendRow(self._snap[r])
 				cellsDat.appendRow(self._snap[r][c0:c1 + 1])
+			self._callback('onSelect', {'rows': rows, 'c0': c0, 'c1': c1})
 		except Exception as e:
 			debug('TableEditor: selection mirror failed: %s' % e)
 

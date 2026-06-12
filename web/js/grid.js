@@ -31,6 +31,7 @@ const Grid = (() => {
 
   let T = null;            // {path,name,editable,headerRow,cells}
   let colW = [];           // base widths (auto-sized or user-resized, persisted)
+  let colFmt = {};         // per-column format views ({c:'checkbox'}, persisted)
   let eW = [];             // effective widths: base + leftover into fillIdx
   let fillIdx = -1;        // content-richest column absorbs spare viewport width
   let sortCol = -1;
@@ -202,7 +203,12 @@ const Grid = (() => {
         cell.style.width = eW[c] + 'px';
         cell.dataset.vr = vr;
         cell.dataset.c = c;
-        cell.textContent = val(r, c);
+        if (colFmt[c] === 'checkbox') {
+          cell.textContent = checkboxOn(val(r, c)) ? '☑' : '☐';
+          cell.classList.add('fmt-checkbox');
+        } else {
+          cell.textContent = val(r, c);
+        }
         if (inAny(vr, c)) cell.classList.add('sel');
         // row selections (gutter) read as rows — no active-cell outline
         if (sel && !sel.rowMode && vr === sel.ar && c === sel.ac) cell.classList.add('cur');
@@ -326,10 +332,49 @@ const Grid = (() => {
     } catch (e) { /* private mode etc. */ }
   }
 
+  // per-column format views ({colIndex: 'checkbox'}), persisted like
+  // widths; view state only — cells still hold plain text
+  function loadFmt() {
+    colFmt = {};
+    try {
+      colFmt = JSON.parse(localStorage.getItem('tdtable:' + T.path + ':fmt')) || {};
+    } catch (e) { /* fresh */ }
+  }
+
+  function saveFmt() {
+    try {
+      localStorage.setItem('tdtable:' + T.path + ':fmt', JSON.stringify(colFmt));
+    } catch (e) { /* private mode etc. */ }
+  }
+
+  // formats follow their column through a drag-reorder (same as widths)
+  function moveFmt(c, gap) {
+    const arr = Array.from({ length: numCols() }, (_, i) => colFmt[i]);
+    const f = arr.splice(c, 1)[0];
+    arr.splice(gap - (c < gap ? 1 : 0), 0, f);
+    colFmt = {};
+    arr.forEach((v, i) => { if (v) colFmt[i] = v; });
+  }
+
+  const checkboxOn = (v) => {
+    const t = String(v).trim();
+    return t !== '' && t !== '0';
+  };
+
+  // single click toggles 0↔1 immediately (empty -> 1); no edit mode
+  function toggleCheckbox(vr, c) {
+    if (!T || !T.editable) return;
+    const r = datR(vr);
+    const on = checkboxOn(val(r, c));
+    localEdit([{ r, c, v: on ? '0' : '1' }],
+      `toggle r${r} c${c} ${on ? 'off' : 'on'}`);
+  }
+
   function setTable(t) {
     const samePath = T && T.path === t.path;
     cancelEdit();
     T = t;
+    if (!samePath) loadFmt();
     if (!samePath || colW.length !== numCols()) {
       loadColW();
     } else if (numCols()) {
@@ -777,6 +822,9 @@ const Grid = (() => {
     } else if (meta && (k === 'd' || k === 'D')) {
       duplicateRows();
       e.preventDefault();
+    } else if (k === ' ' && sel && colFmt[sel.ac] === 'checkbox') {
+      toggleCheckbox(sel.ar, sel.ac);
+      e.preventDefault();
     }
     // NOTE: no type-to-replace — editing starts only via double-click,
     // Enter or F2, so stray typing (e.g. aimed at the filter) never
@@ -1040,6 +1088,12 @@ const Grid = (() => {
       if (e.button !== 0) return;
       const mods = evMods(e);
       const multi = (mods.ctrl || mods.meta) && !mods.shift;
+      if (colFmt[hit.c] === 'checkbox' && T.editable && !mods.shift && !multi) {
+        // checkbox cells toggle on a plain click — no edit mode
+        setAnchor(hit.vr, hit.c, false);
+        toggleCheckbox(hit.vr, hit.c);
+        return;
+      }
       const now = Date.now();
       if (!mods.shift && !multi && hit.vr === lastPress.vr && hit.c === lastPress.c
           && now - lastPress.t < 400) {
@@ -1077,6 +1131,7 @@ const Grid = (() => {
 
     body.addEventListener('dblclick', (e) => {
       const hit = cellFromEvent(e);
+      if (hit && colFmt[hit.c] === 'checkbox') return;   // click toggles instead
       if (hit) startEdit(hit.vr, hit.c);
     });
 
@@ -1305,6 +1360,13 @@ const Grid = (() => {
             fn: () => renameColumn(c) },
           { label: 'Select column contents', disabled: !viewRows.length,
             fn: () => selectColumn(c) },
+          { label: (colFmt[c] === 'checkbox' ? '✓ ' : '') + 'Checkbox format',
+            fn: () => {
+              if (colFmt[c] === 'checkbox') delete colFmt[c];
+              else colFmt[c] = 'checkbox';
+              saveFmt();
+              render();
+            } },
           '-',
           { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1), 'insert column') },
           { label: 'Insert column right', disabled: ro, fn: () => structOp(() => cbs.insertCols(c + 1, 1), 'insert column') },
@@ -1338,10 +1400,12 @@ const Grid = (() => {
         colDrop.hidden = true;
         if (dragging) {
           if (gap >= 0 && gap !== c && gap !== c + 1) {
-            // keep the resized widths attached to their columns
+            // keep the resized widths and formats attached to their columns
             const w = colW.splice(c, 1)[0];
             colW.splice(gap - (c < gap ? 1 : 0), 0, w);
             saveColW();
+            moveFmt(c, gap);
+            saveFmt();
             structOp(() => cbs.moveCols([c], gap), 'move column');
           }
           return;

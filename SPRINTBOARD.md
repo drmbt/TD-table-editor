@@ -155,6 +155,25 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
 
 ## Changelog
 
+### 2026-06-12 — Session 1f (verification pass: wire correctness under view state)
+- TD MCP offline; ran the offline checks. Syntax: py_compile clean on
+  td/*, node --check clean on web/js/*.
+- Wire-correctness battery in mock with a Bridge.send spy, all passed:
+  edit while filtered+sorted targets the right DAT row (vr0 → r26);
+  block paste under sort maps per view row (AAA→r26, BBB→r20);
+  `{t:sel}` payload carries non-contiguous DAT indices under sort
+  ([26,20,46], c0/c1 span); cut copies the selected value and sends the
+  clear-edit to the selected DAT row (isolated test exact; an earlier
+  in-battery anomaly was test sequencing — sort still active between
+  evals — not a grid bug); saved column width (200px) survives a table
+  reload while other columns stay auto and the fill still covers the
+  viewport; header-row-off view includes DAT row 0. Zero console
+  errors.
+- Note for the next TD session: everything TD-side since commit ced8cbe
+  is unverified live (style page, sel outputs creation already verified
+  except the Style page; one loadonstartpulse + reinitextensions
+  applies it all).
+
 ### 2026-06-12 — Session 1e (RFE: style page, smart column widths, selection visibility)
 - **Selection visibility bug** (Vincent's report): `.vrow.alt .cell`
   (specificity 0,3,0) outranked `.cell.sel` (0,2,0), so selected cells

@@ -33,6 +33,12 @@ class TableEditorExt:
 		self._snap = None       # list[list[str]] cache of the target table
 		self._kickN = 0
 		self._styleQueued = False
+		# in-TD modifier state, tracked from keyboardin key events (panel
+		# CHOP modifier channels don't follow bare key presses, and
+		# interactMouse carries no modifier flags) — pushed into the page
+		# as window.__tdMods so pointer handlers can merge it
+		self._mods = {'shift': False, 'ctrl': False,
+					  'alt': False, 'cmd': False}
 		self.OnTargetChange()
 
 	@property
@@ -144,7 +150,10 @@ class TableEditorExt:
 		"\tc = channel.owner\n"
 		"\text = parent().ext.TableEditorExt\n"
 		"\tif channel.name in ('shift', 'ctrl', 'alt'):\n"
-		"\t\treturn  # modifier state is read at use, not forwarded\n"
+		"\t\t# panel modifier channels rarely transition (focus-gated),\n"
+		"\t\t# but when they do it's real state — fold into the tracker\n"
+		"\t\text.OnModifierKey(channel.name, bool(val))\n"
+		"\t\treturn\n"
 		"\tif channel.name == 'wheel':\n"
 		"\t\t# panel wheel is an instantaneous displacement (then snaps to 0)\n"
 		"\t\ttry:\n"
@@ -165,12 +174,22 @@ class TableEditorExt:
 	# namedtuple with key/character/shift/state members.
 	_KB_TEXT = (
 		"def onKey(dat, keyInfo):\n"
+		"\text = parent().ext.TableEditorExt\n"
+		"\tk = str(keyInfo.key or '')\n"
+		"\tif k in ('shift', 'lshift', 'rshift', 'ctrl', 'lctrl', 'rctrl',\n"
+		"\t\t\t'alt', 'lalt', 'ralt', 'cmd', 'lcmd', 'rcmd'):\n"
+		"\t\t# modifiers arrive as their own key events, both states\n"
+		"\t\text.OnModifierKey(k, keyInfo.state)\n"
+		"\t\treturn\n"
 		"\tif not keyInfo.state:\n"
 		"\t\treturn\n"
-		"\tctrl = bool(getattr(keyInfo, 'ctrl', False)\n"
-		"\t\tor getattr(keyInfo, 'cmd', False))\n"
-		"\tparent().ext.TableEditorExt.ForwardKey(\n"
-		"\t\tkeyInfo.key, keyInfo.character, keyInfo.shift, ctrl)\n"
+		"\tcmd = bool(getattr(keyInfo, 'cmd', False))\n"
+		"\tctrl = bool(getattr(keyInfo, 'ctrl', False) or cmd)\n"
+		"\t# chord flags are authoritative — recover from missed keyups\n"
+		"\text.SyncMods(bool(keyInfo.shift),\n"
+		"\t\tbool(getattr(keyInfo, 'ctrl', False)),\n"
+		"\t\tbool(getattr(keyInfo, 'alt', False)), cmd)\n"
+		"\text.ForwardKey(keyInfo.key, keyInfo.character, keyInfo.shift, ctrl)\n"
 		"\treturn\n")
 
 	def _ensureSetup(self):
@@ -208,8 +227,12 @@ class TableEditorExt:
 					p.normMin, p.normMax = lo, hi
 					p.default = p.val = dv
 			if getattr(comp.par, 'Theme', None) is None:
-				p = page.appendMenu('Theme', label='Theme')[0]
-				names = ['custom'] + sorted(self._THEMES)
+				page.appendMenu('Theme', label='Theme')
+			# menu items sync every init — themes added after the par was
+			# created (e.g. drmbt) must land on existing comps too
+			p = comp.par.Theme
+			names = ['custom'] + sorted(self._THEMES)
+			if list(p.menuNames) != names:
 				p.menuNames = names
 				p.menuLabels = [n.capitalize() for n in names]
 		except Exception as e:
@@ -703,6 +726,40 @@ class TableEditorExt:
 
 	_WHEEL_SCALE = 1  # panel wheel notches map 1:1 to interactMouse wheel
 
+	def OnModifierKey(self, key, state):
+		"""Track in-TD modifier state. Source is keyboardin (modifier keys
+		arrive as their own key events, both keydown and keyup) plus any
+		panel CHOP modifier channel transitions. Pushed to the page on
+		change as window.__tdMods — interactMouse events carry no
+		modifier flags, so the grid merges this at pointerdown."""
+		k = str(key)
+		for fam in ('shift', 'ctrl', 'alt', 'cmd'):
+			if k.endswith(fam):
+				if self._mods.get(fam) != bool(state):
+					self._mods[fam] = bool(state)
+					self._pushMods()
+				return
+
+	def SyncMods(self, shift, ctrl, alt, cmd):
+		"""Resync from the chord flags carried on every regular key event —
+		recovers from a modifier keyup missed while the panel lacked
+		keyboard focus."""
+		want = {'shift': bool(shift), 'ctrl': bool(ctrl),
+				'alt': bool(alt), 'cmd': bool(cmd)}
+		if want != self._mods:
+			self._mods = want
+			self._pushMods()
+
+	def _pushMods(self):
+		web = self.ownerComp.op('webrender1')
+		if web is None:
+			return
+		try:
+			web.executeJavaScript(
+				'window.__tdMods = %s' % json.dumps(self._mods))
+		except Exception:
+			pass
+
 	def ForwardWheel(self, u, v, displace, shift=False):
 		if not displace:
 			return
@@ -710,7 +767,7 @@ class TableEditorExt:
 			web = self.ownerComp.op('webrender1')
 			if web is None:
 				return
-			if shift:
+			if shift or self._mods.get('shift'):
 				# interactMouse wheel is vertical-only; shift+wheel scrolls
 				# the grid horizontally via an injected page hook
 				web.executeJavaScript(

@@ -155,6 +155,61 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
 
 ## Changelog
 
+### 2026-06-12 — Session 1k (in-TD modifiers: shift/ctrl/cmd clicks, shift+wheel, drmbt menu)
+- Vincent reported the 1h/1i features dead in-TD (fine in browser):
+  shift/cmd/ctrl clicks, shift+wheel, no drmbt theme. Root causes:
+  (1) `_ensureSetup` set Theme menuNames only at par creation — his
+  Theme par predates drmbt, menu never refreshed; now menu items sync
+  on every init. (2) `ForwardWheel` read the panel CHOP `shift`
+  channel, which does NOT track bare key presses (focus-gated); his
+  shift presses were landing in the keyboardin log instead — verified
+  empirically from the key-log rows (`lshift`/`cmd`/`lcmd`, both
+  states, plus a `cmd` column on every event). (3) ctrl/cmd/shift
+  click selection only ever existed browser-side; interactMouse
+  carries no modifier flags.
+- Fix: the ext now tracks `_mods` {shift,ctrl,alt,cmd} from keyboardin
+  (modifier keys arrive as their own key events, both keydown and
+  keyup; `_KB_TEXT` routes them to `OnModifierKey`), resyncs from the
+  chord flags on every regular keypress (`SyncMods` — recovers keyups
+  missed while unfocused), folds in any panel modifier channel
+  transitions, and pushes changes to the page as `window.__tdMods`.
+  `ForwardWheel` horizontal-scrolls on tracked OR channel shift. The
+  grid merges `__tdMods` with the event's own flags (`evMods`) at the
+  body and gutter pointerdown handlers — browser behavior unchanged
+  (falls back to event flags).
+- Live-verified through the real keyboardin callback (fabricated
+  keyInfo namedtuples into `keyboardin1_callbacks.module.onKey`):
+  lshift down → `__tdMods.shift` true in page → wheel with the panel
+  channel reporting False still scrolled horizontally (0→104);
+  cmd-click on two non-contiguous cells → 2 selected, mirrored out
+  sel_rows; plain keypress cleared the stuck cmd (chord resync);
+  shift-click extended to a 3×2 rect. Theme menu now lists drmbt;
+  applied live (red accent + warm highlight screenshot), then
+  Vincent's dark theme restored exactly from a par snapshot.
+
+### 2026-06-12 — Session 1j (live verification of 1i + F2 in-TD fix)
+- **MCP back, full live pass over the real comp** (td-controller-dev.9,
+  target `/project1/define`): Reloadclients picked up the 1i js (page
+  reports `__tdKey`/`__tdHWheel` live via a `{t:clip}` readback — note
+  `Bridge` is a top-level `const`, NOT on `window`). In-TD cell edit
+  cycle through real pointer events + `__tdKey` (select → Enter →
+  type → Enter) hit the DAT; ctrl+z/ctrl+y round-tripped it exactly.
+  Structural undo verified live: toolbar +Row 13→14, ctrl+z restored
+  13 via `{t:replace}` → ext `_rewrite`, data intact. `__tdHWheel(-2)`
+  scrolled body.scrollLeft 0→105 (clamped) and back; live
+  chopexec_mouse text == `_CE_TEXT`, panel select string carries
+  shift/ctrl/alt. Rowheight 28→40 applied live over `{t:style}` (no
+  reload), screenshot also confirmed selection highlight + gutter
+  tint + `r2 c0` status in-TD. All test edits undone; comp pars
+  restored. (The 250 "File not found for sync" warnings in this .toe
+  are ListerUI modules from the sibling repo, not ours.)
+- **F2 fix**: `f2` was missing from `TD_KEYS`, so F2 never started
+  editing through the in-TD keyboardin path (len-2 key names fall
+  through to null; external browsers were fine). Added `f2:'F2'`;
+  verified live — F2 opens the editor on the selected cell in-TD,
+  Enter commits, ctrl+z restores. keyboardin1 `keys` par is empty
+  (all keys forwarded), so no TD-side change needed.
+
 ### 2026-06-12 — Session 1i (RFE: undo, no type-to-edit, selection-follow, shift+wheel)
 - **TD state verified without MCP** (still not re-registered with this
   session): the live :9981 table broadcast carries the `highlight`

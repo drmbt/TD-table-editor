@@ -53,18 +53,26 @@ TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
 Style dict (comp Style page → CSS vars): bg panel cell cellalt grid
 header gutter text textdim accent highlight font fontsize rowh —
 selection/hover tints derive from `highlight` (--hl), not accent.
-Themes: custom/dark/drmbt/light/synthwave. Selection model: one ACTIVE
-rect + extra rects (ctrl/cmd-click adds areas; gutter ctrl-click
-toggles rows; in-TD mouse forwarding has no modifiers — gutter drag is
-the in-TD multi-select). Editing starts ONLY via double-click/Enter/F2 —
+Themes: custom/dark/drmbt/light/synthwave (the ext re-syncs the Theme
+par's menu items on every init — themes added later must land on
+existing comps). Selection model: one ACTIVE rect + extra rects
+(ctrl/cmd-click adds areas; gutter ctrl-click toggles rows; gutter
+drag range-selects/reorders modifier-free). interactMouse carries no
+modifier flags, so the ext tracks modifier state from keyboardin
+(modifier keys arrive as their own key events, BOTH states; chord
+flags on regular keys resync missed keyups) and pushes it to the page
+as `window.__tdMods`; the grid merges that with the event's own flags
+(`evMods`) at every pointerdown — in-TD shift/ctrl/cmd clicks behave
+like a browser's. Editing starts ONLY via double-click/Enter/F2 —
 no type-to-replace (stray typing must never overwrite cells); `__tdKey`
 routes to whatever page input has focus (filter box) before grid nav.
 Undo/redo: ctrl+z / ctrl+shift+z / ctrl+y — client-side history; cell
 edits store inverse values, structural ops snapshot the table and
 restore via {t:replace} (single-editor assumption). Reorder keeps the
 selection on the moved block. Shift+wheel scrolls horizontally in-TD
-(panel `shift` channel → `__tdHWheel`; interactMouse wheel is
-vertical-only). In-TD ctrl+c/x/v
+(`__tdHWheel`; shift comes from the tracked `_mods` OR the panel
+`shift` channel — the panel channel alone is focus-gated and misses
+bare key presses; interactMouse wheel is vertical-only). In-TD ctrl+c/x/v
 route through ui.clipboard (ForwardKey intercepts); column widths are
 content-aware with a fill column (the content-richest column absorbs
 spare viewport width); saved manual widths override auto.

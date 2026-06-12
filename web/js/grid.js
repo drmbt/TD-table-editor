@@ -644,7 +644,7 @@ const Grid = (() => {
     enter: 'Enter', esc: 'Escape', tab: 'Tab', backspace: 'Backspace',
     delete: 'Delete', left: 'ArrowLeft', right: 'ArrowRight',
     up: 'ArrowUp', down: 'ArrowDown', home: 'Home', end: 'End',
-    pgup: 'PageUp', pgdn: 'PageDown',
+    pgup: 'PageUp', pgdn: 'PageDown', f2: 'F2',
   };
 
   window.__tdKey = (k) => {
@@ -778,6 +778,18 @@ const Grid = (() => {
     try { elm.setPointerCapture(e.pointerId); } catch (err) { /* ok */ }
   }
 
+  // In-TD pointer events come from interactMouse, which carries no
+  // modifier flags — the ext tracks them from keyboardin and pushes
+  // window.__tdMods; merge it with the event's own flags (browsers).
+  function evMods(e) {
+    const m = window.__tdMods || {};
+    return {
+      ctrl: e.ctrlKey || !!m.ctrl,
+      meta: e.metaKey || !!m.cmd,
+      shift: e.shiftKey || !!m.shift,
+    };
+  }
+
   function cellFromEvent(e) {
     const rect = body.getBoundingClientRect();
     const x = e.clientX - rect.left + body.scrollLeft;
@@ -804,9 +816,10 @@ const Grid = (() => {
         return;
       }
       if (e.button !== 0) return;
-      const multi = (e.ctrlKey || e.metaKey) && !e.shiftKey;
+      const mods = evMods(e);
+      const multi = (mods.ctrl || mods.meta) && !mods.shift;
       const now = Date.now();
-      if (!e.shiftKey && !multi && hit.vr === lastPress.vr && hit.c === lastPress.c
+      if (!mods.shift && !multi && hit.vr === lastPress.vr && hit.c === lastPress.c
           && now - lastPress.t < 400) {
         lastPress = { vr: -1, c: -1, t: 0 };
         startEdit(hit.vr, hit.c);
@@ -820,7 +833,7 @@ const Grid = (() => {
         scrollTo(hit.vr, hit.c);
         render();
       } else {
-        setAnchor(hit.vr, hit.c, e.shiftKey);
+        setAnchor(hit.vr, hit.c, mods.shift);
       }
       capture(body, e);
       const onMove = (ev) => {
@@ -873,7 +886,8 @@ const Grid = (() => {
         return;
       }
       if (e.button !== 0) return;
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      const mods = evMods(e);
+      if ((mods.ctrl || mods.meta) && !mods.shift) {
         // ctrl/cmd toggles the row in/out of a non-contiguous row set
         // (flattens any cell rects to whole rows — gutter = row domain)
         const rows = new Set();
@@ -892,12 +906,11 @@ const Grid = (() => {
         render();
         return;
       }
-      // forwarded in-TD mouse events carry no modifier keys, so the gutter
-      // works modifier-free: drag on an unselected row range-selects rows,
-      // drag on an already-selected row reorders the selection.
-      // shift/ctrl-click work in external browsers.
+      // modifier-free gutter gestures still work (drag on an unselected
+      // row range-selects, drag on a selected row reorders); modifiers
+      // come from the event in browsers and from __tdMods in-TD.
       let mode = 'select';
-      if (e.shiftKey && sel) {
+      if (mods.shift && sel) {
         sel.er = vr;
         sel.ac = 0;
         sel.ec = numCols() - 1;

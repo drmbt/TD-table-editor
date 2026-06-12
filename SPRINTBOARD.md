@@ -18,11 +18,12 @@ outputs also verified live in-TD over real interactMouse/keyboardin
 paths), Lister-style sel_rows/sel_cells DAT outputs, the alt-row
 selection-visibility CSS fix, content-aware column widths with a fill
 column, and the comp Style page ({t:style} live restyle + themes).
-**Pending live TD checks (TD MCP dropped mid-session):** one
-`reinitextensions` to apply the Style page + verify a theme switch
-renders; Vincent re-test of: double-click edit, gutter drag select/
-reorder, column drag, ctrl+c/x/v, sel_rows/sel_cells outputs wired
-into a network. Then remaining M2 (1k-row `_rewrite` cost) and **M3**.
+Sessions 1j/1k closed the live-TD gaps: styles/themes apply live
+(drmbt verified in-TD), undo/redo + {t:replace} verified over the
+real WS, and in-TD modifier support landed (keyboardin-tracked
+`__tdMods` — shift/ctrl/cmd clicks and shift+wheel now work in the
+panel). Remaining M2: the 1k-row `_rewrite` cost measurement. Next
+sprint: **M3** (paste-grow, fill-down/right, multi-insert).
 This repo has no .toe; rebuild anywhere with td/build_component.py
 (exec with encoding='utf-8').
 
@@ -103,9 +104,10 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
       mock-verified)
 - [ ] `_rewrite` cost on a ~1k-row table (defer: the dev session was
       already fps-starved; measure in a quiet session)
-- [ ] In-TD input hands-on: mouse forwarding (click/drag/wheel/
-      right-click) and keyboardin typing into cell editors — needs
-      Vincent at the machine
+- [x] In-TD input hands-on: mouse forwarding, keyboardin typing,
+      modifier clicks, shift+wheel — Vincent's 1k round drove the
+      fixes; modifier paths verified through the real keyboardin
+      callback (2026-06-12)
 - [x] Openviewer window verified (winopen/winclose pulses, `.isOpen`
       round trip)
 - [x] Perf: comp holds 0.1% cook budget / 0.12ms cpu/s with a client
@@ -118,9 +120,11 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
 - [ ] Fill-down (ctrl+d) / fill-right (ctrl+r); drag-fill handle on the
       selection (copy fill; smart series = icebox)
 - [ ] Multi-row/col insert (insert N at selection), duplicate rows
-- [ ] Column drag-reorder (header drag, writes the DAT)
-- [ ] Undo/redo: wire grid ops into TD's undo system if viable
-      (ops via `run` with undo blocks), else ext-side undo stack
+- [x] Column drag-reorder (header drag, writes the DAT) — landed in
+      session 1f/1i with width-follows-column
+- [x] Undo/redo — client-side history landed 1i (cell-edit inverses +
+      structural snapshots via {t:replace}); TD-native undo blocks
+      stay icebox
 - [ ] Bigger-paste stress test (10k cells)
 
 ### M4 — Lister-parity view tools
@@ -143,8 +147,8 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
       hints, frozen cols, header flag) — project-portable, hot-reload,
       localStorage stays the fallback
 - [ ] Multi-table tabs: recent targets as tabs along the top
-- [ ] Theme/style pars on the comp (reuse the sibling's Style page
-      pattern) → CSS vars
+- [x] Theme/style pars on the comp (Style page → CSS vars, theme
+      presets incl. drmbt) — landed 1h, menu-sync fix 1k
 
 ### Later / icebox
 - Apply-filter-to-DAT (destructive filter with confirm); smart series

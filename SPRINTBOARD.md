@@ -174,6 +174,20 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
   except the Style page; one loadonstartpulse + reinitextensions
   applies it all).
 
+### 2026-06-12 — Session 1g (live verification without MCP, via the comp's own WS)
+- TD MCP stayed disconnected, but the comp's webserver on :9981 is a
+  direct line: drove the LIVE page in the preview browser against the
+  real TD. The table broadcast carries a fully populated style dict
+  (all ten colors + fontsize + rowh read from live par values) —
+  **proves the Style page exists on the comp and the new ext is
+  loaded** (the pre-disconnect reinit did land).
+- Live page against Vincent's real colDefineOptions (16×6, editable,
+  conn ok): content-aware widths fit short columns (134/102/102/102/
+  110) and the content-richest Delete column absorbed 678px to exactly
+  fill the 1228px viewport.
+- Still pending live (needs a TD-side par touch — Vincent or MCP):
+  Theme menu switch → {t:style} live restyle of connected clients.
+
 ### 2026-06-12 — Session 1e (RFE: style page, smart column widths, selection visibility)
 - **Selection visibility bug** (Vincent's report): `.vrow.alt .cell`
   (specificity 0,3,0) outranked `.cell.sel` (0,2,0), so selected cells

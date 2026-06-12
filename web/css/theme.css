@@ -2,6 +2,7 @@
  * page (sprintboard M5) can restyle live, like the sibling project. */
 
 :root {
+  /* the comp's Style page writes these vars live over the WS ({t:style}) */
   --bg: #16181c;
   --panel: #1d2026;
   --cell: #1a1d22;
@@ -12,14 +13,18 @@
   --text: #d8dade;
   --text-dim: #8b909a;
   --accent: #5fb4ff;
-  --accent-soft: rgba(95, 180, 255, 0.18);
-  --sel-border: #5fb4ff;
-  --cur-bg: rgba(95, 180, 255, 0.10);
+  /* derived from --accent so one par restyles selection too (color-mix
+   * verified rendering in CEF 132 by the sibling project) */
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+  --sel-border: var(--accent);
+  --cur-bg: color-mix(in srgb, var(--accent) 12%, transparent);
   --warn: #e8b339;
   --ok: #36b46e;
   --down: #b4444a;
-  --font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+  --fontsize: 13px;
+  --font: var(--fontsize)/1.35 var(--font-family);
   --mono: 12px/1.35 "SF Mono", Menlo, Consolas, monospace;
   --rowh: 26px;
   --gutterw: 52px;
@@ -183,8 +188,10 @@ body {
 }
 .vrow.alt .cell { background: var(--cell-alt); }
 
-.cell.sel { background: var(--accent-soft); }
-.cell.cur {
+/* selection must outrank the .vrow.alt stripe rule above, or selected
+ * cells on alternate rows show no feedback at all */
+.vrow .cell.sel, .vrow.alt .cell.sel { background: var(--accent-soft); }
+.vrow .cell.cur, .vrow.alt .cell.cur {
   outline: 2px solid var(--sel-border);
   outline-offset: -2px;
   background: var(--cur-bg);
@@ -254,6 +261,16 @@ body {
   position: absolute;
   left: 0;
   height: 2px;
+  background: var(--accent);
+  z-index: 6;
+  pointer-events: none;
+}
+
+#coldropline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
   background: var(--accent);
   z-index: 6;
   pointer-events: none;

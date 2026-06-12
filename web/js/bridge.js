@@ -129,6 +129,20 @@ const Bridge = (() => {
         });
         later(mockTableMsg());
       }
+    } else if (msg.t === 'reorder') {
+      // full data-row permutation (header rows keep their place)
+      const hdr = MOCK.headerRow ? 1 : 0;
+      const valid = [...new Set(msg.rows || [])].filter((r) => r >= hdr && r < cells.length);
+      const seen = new Set(valid);
+      const missing = [];
+      for (let i = hdr; i < cells.length; i++) if (!seen.has(i)) missing.push(i);
+      MOCK.cells = [...cells.slice(0, hdr), ...valid.map((r) => cells[r]),
+        ...missing.map((r) => cells[r])];
+      later(mockTableMsg());
+    } else if (msg.t === 'sel') {
+      MOCK.lastSel = msg.sel;        // inspectable in tests; TD writes DATs
+    } else if (msg.t === 'clip') {
+      MOCK.lastClip = msg.text;
     } else if (msg.t === 'setheader') {
       MOCK.headerRow = !!msg.on;
       later(mockTableMsg());

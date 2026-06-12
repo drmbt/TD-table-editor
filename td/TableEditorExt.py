@@ -32,6 +32,7 @@ class TableEditorExt:
 		self.rev = 0
 		self._snap = None       # list[list[str]] cache of the target table
 		self._kickN = 0
+		self._styleQueued = False
 		self.OnTargetChange()
 
 	@property
@@ -42,7 +43,10 @@ class TableEditorExt:
 	# Canonical copies of the in-comp callback DAT texts live here so repo
 	# updates apply on reinitextensions (build_component creates bare DATs).
 
-	_PE2_PARS = 'Targetop Headerrow Refresh Openinbrowser Openviewer'
+	_PE2_PARS = ('Targetop Headerrow Refresh Openinbrowser Openviewer'
+				 ' Bgcolor* Panelcolor* Cellcolor* Cellaltcolor* Gridcolor*'
+				 ' Headercolor* Guttercolor* Textcolor* Textdimcolor*'
+				 ' Accentcolor* Fontfamily Fontsize Rowheight Theme')
 
 	_PE2_TEXT = (
 		"def onPulse(par):\n"
@@ -62,7 +66,55 @@ class TableEditorExt:
 		"\t\text.OnTargetChange()\n"
 		"\telif par.name == 'Headerrow':\n"
 		"\t\text.Refresh()\n"
+		"\telif par.name == 'Theme':\n"
+		"\t\text.ApplyTheme(par.eval())\n"
+		"\telse:\n"
+		"\t\text.OnStyleChange()  # Style page pars\n"
 		"\treturn\n")
+
+	# Style page: par name -> (label, default rgb) ; broadcast as hex CSS
+	# vars to every client. Defaults mirror web/css/theme.css.
+	_STYLE_COLORS = (
+		('Bgcolor', 'Background', (0.086, 0.094, 0.110)),
+		('Panelcolor', 'Toolbar', (0.114, 0.125, 0.149)),
+		('Cellcolor', 'Cell', (0.102, 0.114, 0.133)),
+		('Cellaltcolor', 'Cell Alternate', (0.114, 0.129, 0.153)),
+		('Gridcolor', 'Grid Lines', (0.165, 0.180, 0.212)),
+		('Headercolor', 'Column Header', (0.137, 0.153, 0.188)),
+		('Guttercolor', 'Row Gutter', (0.122, 0.137, 0.169)),
+		('Textcolor', 'Text', (0.847, 0.855, 0.871)),
+		('Textdimcolor', 'Text Dim', (0.545, 0.565, 0.604)),
+		('Accentcolor', 'Accent', (0.373, 0.706, 1.0)),
+	)
+
+	_STYLE_INTS = (
+		('Rowheight', 'Row Height', 18, 48, 26),
+		('Fontsize', 'Font Size', 10, 20, 13),
+	)
+
+	_THEMES = {
+		'dark': {
+			'Bgcolor': (0.086, 0.094, 0.110), 'Panelcolor': (0.114, 0.125, 0.149),
+			'Cellcolor': (0.102, 0.114, 0.133), 'Cellaltcolor': (0.114, 0.129, 0.153),
+			'Gridcolor': (0.165, 0.180, 0.212), 'Headercolor': (0.137, 0.153, 0.188),
+			'Guttercolor': (0.122, 0.137, 0.169), 'Textcolor': (0.847, 0.855, 0.871),
+			'Textdimcolor': (0.545, 0.565, 0.604), 'Accentcolor': (0.373, 0.706, 1.0),
+		},
+		'light': {
+			'Bgcolor': (0.910, 0.918, 0.933), 'Panelcolor': (0.957, 0.961, 0.973),
+			'Cellcolor': (1.0, 1.0, 1.0), 'Cellaltcolor': (0.953, 0.961, 0.973),
+			'Gridcolor': (0.831, 0.847, 0.875), 'Headercolor': (0.890, 0.902, 0.925),
+			'Guttercolor': (0.925, 0.933, 0.949), 'Textcolor': (0.165, 0.176, 0.200),
+			'Textdimcolor': (0.420, 0.439, 0.467), 'Accentcolor': (0.165, 0.435, 0.722),
+		},
+		'synthwave': {
+			'Bgcolor': (0.039, 0.039, 0.071), 'Panelcolor': (0.082, 0.071, 0.169),
+			'Cellcolor': (0.094, 0.078, 0.200), 'Cellaltcolor': (0.110, 0.090, 0.224),
+			'Gridcolor': (0.173, 0.141, 0.322), 'Headercolor': (0.125, 0.102, 0.251),
+			'Guttercolor': (0.102, 0.082, 0.208), 'Textcolor': (0.847, 0.831, 0.910),
+			'Textdimcolor': (0.561, 0.525, 0.678), 'Accentcolor': (0.706, 0.373, 1.0),
+		},
+	}
 
 	_DE_TEXT = (
 		"def onTableChange(dat):\n"
@@ -90,12 +142,43 @@ class TableEditorExt:
 		"def onKey(dat, keyInfo):\n"
 		"\tif not keyInfo.state:\n"
 		"\t\treturn\n"
+		"\tctrl = bool(getattr(keyInfo, 'ctrl', False)\n"
+		"\t\tor getattr(keyInfo, 'cmd', False))\n"
 		"\tparent().ext.TableEditorExt.ForwardKey(\n"
-		"\t\tkeyInfo.key, keyInfo.character, keyInfo.shift)\n"
+		"\t\tkeyInfo.key, keyInfo.character, keyInfo.shift, ctrl)\n"
 		"\treturn\n")
 
 	def _ensureSetup(self):
 		comp = self.ownerComp
+		# Style page (idempotent, per-par: new pars append on reinit)
+		try:
+			page = None
+			for pg in comp.customPages:
+				if pg.name == 'Style':
+					page = pg
+					break
+			if page is None:
+				page = comp.appendCustomPage('Style')
+			for name, label, rgb in self._STYLE_COLORS:
+				if getattr(comp.par, name + 'r', None) is None:
+					g = page.appendRGB(name, label=label)
+					for p, v in zip(g, rgb):
+						p.default = v
+						p.val = v
+			if getattr(comp.par, 'Fontfamily', None) is None:
+				page.appendStr('Fontfamily', label='Font Family')
+			for name, label, lo, hi, dv in self._STYLE_INTS:
+				if getattr(comp.par, name, None) is None:
+					p = page.appendInt(name, label=label)[0]
+					p.normMin, p.normMax = lo, hi
+					p.default = p.val = dv
+			if getattr(comp.par, 'Theme', None) is None:
+				p = page.appendMenu('Theme', label='Theme')[0]
+				names = ['custom'] + sorted(self._THEMES)
+				p.menuNames = names
+				p.menuLabels = [n.capitalize() for n in names]
+		except Exception as e:
+			debug('TableEditor: style page setup failed: %s' % e)
 		pe2 = comp.op('parexec_self')
 		if pe2 is not None:
 			if pe2.par.pars.eval() != self._PE2_PARS:
@@ -135,6 +218,25 @@ class TableEditorExt:
 				cb.text = self._KB_TEXT
 		except Exception as e:
 			debug('TableEditor: keyboardin setup failed: %s' % e)
+		# selection outputs: sel_rows/sel_cells tables -> outDATs give the
+		# comp Lister-style DAT out connectors (out1 = rows, out2 = cells)
+		try:
+			for i, (tname, oname, y) in enumerate(
+					(('sel_rows', 'out_selrows', -400),
+					 ('sel_cells', 'out_selcells', -550))):
+				tbl = comp.op(tname)
+				if tbl is None:
+					tbl = comp.create(tableDAT, tname)
+					tbl.nodeX, tbl.nodeY = 680, y
+					tbl.clear()
+				out = comp.op(oname)
+				if out is None:
+					out = comp.create(outDAT, oname)
+					out.nodeX, out.nodeY = 900, y
+				if not out.inputs:
+					out.inputConnectors[0].connect(tbl)
+		except Exception as e:
+			debug('TableEditor: selection outputs setup failed: %s' % e)
 
 	# ---- target ---------------------------------------------------------------
 
@@ -173,6 +275,7 @@ class TableEditorExt:
 			except Exception:
 				pass
 		self._snap = self._read(dat)
+		self.OnSelection(None)  # selection coords from the old table are stale
 		self._broadcastTable()
 
 	def Refresh(self):
@@ -197,6 +300,63 @@ class TableEditorExt:
 			except Exception as e:
 				debug('TableEditor: window open failed: %s' % e)
 
+	# ---- style ------------------------------------------------------------------
+
+	def _hex(self, name):
+		try:
+			vals = [getattr(self.ownerComp.par, name + ch).eval()
+					for ch in 'rgb']
+			return '#%02x%02x%02x' % tuple(
+				max(0, min(255, int(round(v * 255)))) for v in vals)
+		except Exception:
+			return None
+
+	def _styleDict(self):
+		comp = self.ownerComp
+		style = {}
+		for parName, key in (
+				('Bgcolor', 'bg'), ('Panelcolor', 'panel'),
+				('Cellcolor', 'cell'), ('Cellaltcolor', 'cellalt'),
+				('Gridcolor', 'grid'), ('Headercolor', 'header'),
+				('Guttercolor', 'gutter'), ('Textcolor', 'text'),
+				('Textdimcolor', 'textdim'), ('Accentcolor', 'accent')):
+			h = self._hex(parName)
+			if h:
+				style[key] = h
+		try:
+			font = comp.par.Fontfamily.eval().strip()
+			if font:
+				style['font'] = font
+			style['fontsize'] = int(comp.par.Fontsize.eval())
+			style['rowh'] = int(comp.par.Rowheight.eval())
+		except Exception:
+			pass
+		return style
+
+	def ApplyTheme(self, name):
+		"""Write a preset's colors into the Style pars ('custom' = no-op);
+		each write fires OnStyleChange, which coalesces to one broadcast."""
+		theme = self._THEMES.get(name)
+		if not theme:
+			return
+		for parName, rgb in theme.items():
+			try:
+				for ch, v in zip('rgb', rgb):
+					getattr(self.ownerComp.par, parName + ch).val = v
+			except Exception:
+				pass
+
+	def OnStyleChange(self):
+		if self._styleQueued:
+			return
+		self._styleQueued = True
+		run('args[0]._FlushStyle()', self, delayFrames=2,
+			fromOP=self.ownerComp)
+
+	def _FlushStyle(self):
+		self._styleQueued = False
+		self._broadcast({'t': 'style', 'style': self._styleDict()})
+
 	# ---- outgoing: table state -> clients --------------------------------------
 
 	def _tableMsg(self):
@@ -208,6 +368,7 @@ class TableEditorExt:
 			'name': dat.name if dat is not None else '',
 			'editable': bool(dat is not None and self._editable(dat)),
 			'headerRow': bool(self.ownerComp.par.Headerrow.eval()),
+			'style': self._styleDict(),
 			'cells': self._snap if self._snap is not None else [],
 		}
 
@@ -308,6 +469,12 @@ class TableEditorExt:
 				self._deleteCols(msg.get('cols') or [])
 			elif t == 'movecols':
 				self._moveCols(msg.get('cols') or [], int(msg.get('to', 0)))
+			elif t == 'reorder':
+				self._reorderRows(msg.get('rows') or [])
+			elif t == 'sel':
+				self.OnSelection(msg.get('sel'))
+			elif t == 'clip':
+				ui.clipboard = str(msg.get('text', ''))
 			elif t == 'setheader':
 				self.ownerComp.par.Headerrow = bool(msg.get('on'))
 				# parexec valuechange fires Refresh -> broadcast
@@ -415,6 +582,26 @@ class TableEditorExt:
 		self._rewrite([[v for i, v in enumerate(r) if i not in drop]
 					   for r in cells])
 
+	def _reorderRows(self, rows):
+		"""Apply a full data-row permutation (the page's 'Apply sort to
+		DAT'). Header rows keep their place; rows missing from the list
+		(raced concurrent edits) append at the end in original order."""
+		cells = self._cellsCopy()
+		hdr = 1 if self.ownerComp.par.Headerrow.eval() else 0
+		hdr = min(hdr, len(cells))
+		valid = []
+		seen = set()
+		for r in rows:
+			r = int(r)
+			if hdr <= r < len(cells) and r not in seen:
+				valid.append(r)
+				seen.add(r)
+		if not valid:
+			return
+		missing = [i for i in range(hdr, len(cells)) if i not in seen]
+		self._rewrite(cells[:hdr] + [cells[r] for r in valid]
+					  + [cells[i] for i in missing])
+
 	def _moveCols(self, cols, to):
 		cells = self._cellsCopy()
 		ncols = self._numCols(cells)
@@ -428,6 +615,31 @@ class TableEditorExt:
 			rest = [v for i, v in enumerate(r) if i not in set(take)]
 			out.append(rest[:ins] + block + rest[ins:])
 		self._rewrite(out)
+
+	# ---- selection outputs (Lister-style) ----------------------------------------
+
+	def OnSelection(self, sel):
+		"""Mirror the page's selection into the comp's sel_rows / sel_cells
+		table DATs (wired to the comp's DAT out connectors). Last client to
+		change selection wins. sel: {rows:[datRow,..], c0, c1} or None."""
+		rowsDat = self.ownerComp.op('sel_rows')
+		cellsDat = self.ownerComp.op('sel_cells')
+		if rowsDat is None or cellsDat is None:
+			return
+		try:
+			rowsDat.clear()
+			cellsDat.clear()
+			if not sel or self._snap is None:
+				return
+			rows = [int(r) for r in (sel.get('rows') or [])
+					if 0 <= int(r) < len(self._snap)]
+			c0 = max(0, int(sel.get('c0', 0)))
+			c1 = int(sel.get('c1', 0))
+			for r in rows:
+				rowsDat.appendRow(self._snap[r])
+				cellsDat.appendRow(self._snap[r][c0:c1 + 1])
+		except Exception as e:
+			debug('TableEditor: selection mirror failed: %s' % e)
 
 	# ---- in-TD input forwarding (webrenderTOP has no native key injection) ------
 
@@ -444,14 +656,29 @@ class TableEditorExt:
 		except Exception:
 			pass
 
-	def ForwardKey(self, key, character, shift):
+	def ForwardKey(self, key, character, shift, ctrl=False):
+		"""Inject a TD keystroke into the page (webrenderTOP has no native
+		keyboard injection). Ctrl+c/x/v route the clipboard through TD —
+		offscreen CEF has no OS clipboard access, ui.clipboard does."""
 		web = self.ownerComp.op('webrender1')
 		if web is None:
 			return
-		payload = json.dumps({'key': str(key or ''),
-							  'ch': str(character or ''),
-							  'shift': bool(shift)})
 		try:
+			if ctrl and str(key) in ('c', 'x', 'v'):
+				if key == 'v':
+					text = ui.clipboard or ''
+					web.executeJavaScript(
+						'window.__tdPaste && window.__tdPaste(%s)'
+						% json.dumps(text))
+				else:
+					web.executeJavaScript(
+						'window.__tdCopy && window.__tdCopy(%s)'
+						% ('true' if key == 'x' else 'false'))
+				return
+			payload = json.dumps({'key': str(key or ''),
+								  'ch': str(character or ''),
+								  'shift': bool(shift),
+								  'ctrl': bool(ctrl)})
 			web.executeJavaScript(
 				'window.__tdKey && window.__tdKey(%s)' % payload)
 		except Exception:

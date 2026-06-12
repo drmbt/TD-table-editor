@@ -12,6 +12,26 @@
 
   let table = null;
 
+  // comp Style page -> CSS vars; rides on every {t:table} and as live
+  // {t:style} broadcasts when a Style par changes
+  const STYLE_VARS = {
+    bg: '--bg', panel: '--panel', cell: '--cell', cellalt: '--cell-alt',
+    grid: '--grid-line', header: '--header-bg', gutter: '--gutter-bg',
+    text: '--text', textdim: '--text-dim', accent: '--accent',
+  };
+
+  function applyStyle(s) {
+    if (!s) return;
+    const root = document.documentElement.style;
+    for (const [k, v] of Object.entries(STYLE_VARS)) {
+      if (s[k]) root.setProperty(v, s[k]);
+    }
+    if (s.font) root.setProperty('--font-family', s.font);
+    if (s.fontsize) root.setProperty('--fontsize', s.fontsize + 'px');
+    if (s.rowh) root.setProperty('--rowh', s.rowh + 'px');
+    Grid.setStyle({ rowh: s.rowh });
+  }
+
   Grid.init($('grid'), {
     edit: (edits) => Bridge.send({ t: 'edit', edits }),
     insertRows: (at, rows) => Bridge.send({ t: 'insertrows', at, rows }),
@@ -19,6 +39,10 @@
     moveRows: (rows, to) => Bridge.send({ t: 'moverows', rows, to }),
     insertCols: (at, count) => Bridge.send({ t: 'insertcols', at, count }),
     deleteCols: (cols) => Bridge.send({ t: 'deletecols', cols }),
+    moveCols: (cols, to) => Bridge.send({ t: 'movecols', cols, to }),
+    applySort: (rows) => Bridge.send({ t: 'reorder', rows }),
+    select: (sel) => Bridge.send({ t: 'sel', sel }),
+    clip: (text) => Bridge.send({ t: 'clip', text }),
     status: (s) => {
       dimsEl.textContent = s.dims || '';
       selEl.textContent = s.sel || '';
@@ -27,8 +51,11 @@
 
   Bridge.init({
     message(msg) {
-      if (msg.t === 'table') {
+      if (msg.t === 'style') {
+        applyStyle(msg.style);
+      } else if (msg.t === 'table') {
         table = msg;
+        if (msg.style) applyStyle(msg.style);
         targetEl.textContent = msg.name || '—';
         targetEl.title = msg.path || 'no target table';
         roBadge.hidden = !!msg.editable;

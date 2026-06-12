@@ -46,11 +46,29 @@ This project takes the architecture proven by
   gutter and column header selection, full keyboard navigation
 - **Copy / cut / paste** TSV blocks — interoperable with Excel, Sheets,
   and text editors
-- **Row reordering** by dragging the row gutter (writes the DAT)
+- **Row reordering** by dragging the row gutter (writes the DAT); dragging
+  an unselected row **range-selects** rows instead — no modifier keys
+  needed, so it works with in-TD forwarded mouse input
+- **Column reordering** by dragging a column header (writes the DAT);
+  a plain click still sorts
 - **Insert / delete rows and columns** via context menu and toolbar
 - **Sorting** (click a column header, 3-state) and **filtering** (live
-  text filter) — view-only, the DAT is never reordered by them
-- **Draggable column widths**, persisted per table
+  text filter) — view-only by default; **Apply sort to DAT** (header
+  right-click) writes the sorted order back into the table
+- **Selection outputs**: the comp has two DAT out connectors mirroring
+  the live selection — `out1` the full selected rows, `out2` the selected
+  cell block — so the editor doubles as a Lister-style picker you can
+  wire into your network
+- **In-TD clipboard**: ctrl+c/x/v in the TD panel route through
+  `ui.clipboard` (offscreen CEF has no OS clipboard); external browsers
+  use the native clipboard
+- **Content-aware column sizing**: columns auto-fit their content — short
+  columns stay narrow, long-text columns get more room (capped), and the
+  content-richest column stretches to fill the panel so no space is
+  wasted. Manual drag-resizes persist per table and override auto widths
+- **Style page** on the comp: ten theme colors, font family/size and row
+  height restyle every connected client live (dark / light / synthwave
+  presets via the Theme menu, tweakable from there)
 - **Header row** mode: first DAT row becomes the sticky column header
 - Read-only mode with banner for non-editable DATs (cooked outputs,
   locked) — same rule as TD's own viewer
@@ -100,6 +118,13 @@ Client → TD:
 {"t":"insertcols", "at":2, "count":1}
 {"t":"deletecols", "cols":[3]}
 {"t":"movecols",   "cols":[2], "to":0}
+{"t":"reorder",    "rows":[5,3,4]}         // full data-row permutation:
+                                           // "Apply sort to DAT" writes the
+                                           // view's order into the table
+{"t":"sel",  "sel":{"rows":[2,3], "c0":0, "c1":4}}  // selection (debounced);
+                                           // mirrored into the comp's
+                                           // sel_rows / sel_cells outputs
+{"t":"clip", "text":"a\tb"}                // in-TD copy: ext sets ui.clipboard
 {"t":"setheader",  "on":true}              // first row = sticky header
 {"t":"settable",   "path":"/project1/table1"}  // retarget the editor
 ```
@@ -108,8 +133,10 @@ TD → client:
 
 ```jsonc
 {"t":"table", "rev":7, "path":"/project1/table1", "name":"table1",
- "editable":true, "headerRow":true, "cells":[["name","dur"],["intro","30"]]}
+ "editable":true, "headerRow":true, "style":{"bg":"#16181c", "rowh":26},
+ "cells":[["name","dur"],["intro","30"]]}
 {"t":"delta", "rev":8, "edits":[{"r":1,"c":1,"v":"45"}]}
+{"t":"style", "style":{"accent":"#b45fff", "fontsize":13}}  // live restyle
 {"t":"error", "msg":"..."}
 ```
 

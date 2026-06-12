@@ -42,9 +42,16 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 `{t:insertrows,at,rows:[[...]]}` `{t:deleterows,rows:[...]}`
 `{t:moverows,rows:[...],to}` `{t:insertcols,at,count}`
 `{t:deletecols,cols:[...]}` `{t:movecols,cols:[...],to}`
+`{t:reorder,rows:[perm]}` (Apply sort to DAT) `{t:sel,sel:{rows,c0,c1}}`
+(→ sel_rows/sel_cells output DATs) `{t:clip,text}` (→ ui.clipboard)
 `{t:setheader,on}` `{t:settable,path}`;
-TD→client: `{t:table,rev,path,name,editable,headerRow,cells:[[...]]}`
-`{t:delta,rev,edits:[{r,c,v}]}` `{t:error,msg}`.
+TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
+`{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:error,msg}`.
+Style dict (comp Style page → CSS vars): bg panel cell cellalt grid
+header gutter text textdim accent font fontsize rowh. In-TD ctrl+c/x/v
+route through ui.clipboard (ForwardKey intercepts); column widths are
+content-aware with a fill column (the content-richest column absorbs
+spare viewport width); saved manual widths override auto.
 All r/c are DAT coordinates. `rev` is monotonic per ext instance; a full
 `table` resets the client baseline. `moverows.to` is an insertion index in
 pre-removal DAT coordinates (the ext adjusts for rows removed above it).
@@ -69,7 +76,15 @@ write path re-checks.
   apply with one `reinitextensions`. build_component creates bare DATs only.
 - Comp custom pars: Targetop (the table DAT), Headerrow (first row renders
   as the sticky header), Webroot, Port (9981), Refresh (pulse),
-  Openviewer (pulse → window1), Openinbrowser (pulse).
+  Openviewer (pulse → window1), Openinbrowser (pulse); Style page
+  (created by `_ensureSetup`): Bg/Panel/Cell/Cellalt/Grid/Header/Gutter/
+  Text/Textdim/Accentcolor RGB, Fontfamily, Fontsize, Rowheight, Theme
+  menu (custom/dark/light/synthwave presets write the color pars via
+  `ApplyTheme`, coalesced through `OnStyleChange`).
+- Selection outputs: the grid streams its selection (debounced 150ms)
+  over the WS; the ext mirrors it into `sel_rows` / `sel_cells` table
+  DATs wired to outDATs — the comp has Lister-style DAT out connectors
+  (out1 = selected rows, out2 = selected cell block).
 - `ext.Open(path)` — retarget + pop the window in one call; this is the
   hook for Vincent's ctrl.t keyboardin macro (his ListerUI workflow).
 

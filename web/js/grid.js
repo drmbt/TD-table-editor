@@ -16,9 +16,10 @@
  *   status(info)             {dims, sel, note} for the status bar
  */
 const Grid = (() => {
-  const ROWH = 26;
+  let ROWH = 26;           // synced with the --rowh CSS var via setStyle
   const DEFW = 110;
   const MINW = 40;
+  const MAXAUTO = 420;     // auto-sizing cap; manual resize can exceed it
   const OVERSCAN = 6;
   const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -29,7 +30,9 @@ const Grid = (() => {
   let ctxEl = null;
 
   let T = null;            // {path,name,editable,headerRow,cells}
-  let colW = [];
+  let colW = [];           // base widths (auto-sized or user-resized, persisted)
+  let eW = [];             // effective widths: base + leftover into fillIdx
+  let fillIdx = -1;        // content-richest column absorbs spare viewport width
   let sortCol = -1;
   let sortDir = 0;         // 0 none, 1 asc, -1 desc
   let filterStr = '';
@@ -37,6 +40,12 @@ const Grid = (() => {
   let sel = null;          // {ar,ac,er,ec} in view coords (anchor + extent)
   let editing = null;      // {vr,c}
   let renderQueued = false;
+  // interactMouse never synthesizes a native dblclick in offscreen CEF, so
+  // double-press is detected manually (also covers external browsers)
+  let lastPress = { vr: -1, c: -1, t: 0 };
+  let selTimer = null;     // debounced selection -> TD (sel_rows/sel_cells)
+  let lastSelSent = '';
+  let colDrop = null;      // vertical dropline for column drag-reorder
 
   // ---- coordinate helpers --------------------------------------------------
 
@@ -50,15 +59,15 @@ const Grid = (() => {
     while (c > 0) { c -= 1; s = LETTERS[c % 26] + s; c = Math.floor(c / 26); }
     return s;
   };
-  const totalW = () => colW.reduce((a, b) => a + b, 0);
-  const colLeft = (c) => colW.slice(0, c).reduce((a, b) => a + b, 0);
+  const totalW = () => eW.reduce((a, b) => a + b, 0);
+  const colLeft = (c) => eW.slice(0, c).reduce((a, b) => a + b, 0);
   const colAt = (x) => {
     let acc = 0;
-    for (let c = 0; c < colW.length; c++) {
-      acc += colW[c];
+    for (let c = 0; c < eW.length; c++) {
+      acc += eW[c];
       if (x < acc) return c;
     }
-    return colW.length - 1;
+    return eW.length - 1;
   };
   const normSel = () => sel && {
     r0: Math.min(sel.ar, sel.er), r1: Math.max(sel.ar, sel.er),
@@ -130,7 +139,7 @@ const Grid = (() => {
     for (let c = 0; c < numCols(); c++) {
       const h = document.createElement('div');
       h.className = 'hcell';
-      h.style.width = colW[c] + 'px';
+      h.style.width = eW[c] + 'px';
       h.dataset.c = c;
       h.textContent = T.headerRow ? (val(0, c) || colLetter(c)) : colLetter(c);
       if (sortDir !== 0 && c === sortCol) {
@@ -180,7 +189,7 @@ const Grid = (() => {
       for (let c = 0; c < numCols(); c++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
-        cell.style.width = colW[c] + 'px';
+        cell.style.width = eW[c] + 'px';
         cell.dataset.vr = vr;
         cell.dataset.c = c;
         cell.textContent = val(r, c);
@@ -210,6 +219,7 @@ const Grid = (() => {
   function renderAll() {
     recomputeView();
     clampSel();
+    updateEff();
     renderHead();
     render();
   }
@@ -232,18 +242,70 @@ const Grid = (() => {
         : `r${datR(sel.ar)} c${sel.ac}`;
     }
     cbs.status({ dims, sel: selInfo });
+    queueSelSend();
+  }
+
+  // selection -> TD, debounced: the ext mirrors it into the comp's
+  // sel_rows / sel_cells output DATs (Lister-style selection outputs)
+  function selPayload() {
+    const s = normSel();
+    if (!s || !T || !T.cells.length) return null;
+    return { rows: selDatRows(), c0: s.c0, c1: s.c1 };
+  }
+
+  function queueSelSend() {
+    if (!cbs.select) return;
+    const key = JSON.stringify(selPayload());
+    if (key === lastSelSent) return;
+    clearTimeout(selTimer);
+    selTimer = setTimeout(() => {
+      lastSelSent = key;
+      cbs.select(selPayload());
+    }, 150);
   }
 
   // ---- table data in/out ----------------------------------------------------------
 
+  // content-aware sizing: short columns stay narrow, long-text columns get
+  // medium/capped widths, and the content-richest column (fillIdx) absorbs
+  // any spare viewport width so the grid always fills the panel
+  function computeAuto() {
+    const n = numCols();
+    const maxCh = Array(n).fill(2);
+    const sample = Math.min(T.cells.length, 500);
+    for (let r = 0; r < sample; r++) {
+      const row = T.cells[r];
+      for (let c = 0; c < n; c++) {
+        const len = (row[c] || '').length;
+        if (len > maxCh[c]) maxCh[c] = len;
+      }
+    }
+    const px = Math.round((parseFloat(getComputedStyle(document.body).fontSize) || 13) * 0.58);
+    const w = maxCh.map((m) => Math.max(MINW, Math.min(22 + m * px, MAXAUTO)));
+    return { w, maxCh };
+  }
+
   function loadColW() {
     const n = numCols();
-    let w = null;
+    if (!n) { colW = []; eW = []; fillIdx = -1; return; }
+    const auto = computeAuto();
+    fillIdx = auto.maxCh.indexOf(Math.max(...auto.maxCh));
+    let saved = null;
     try {
-      w = JSON.parse(localStorage.getItem('tdtable:' + T.path + ':colw'));
+      saved = JSON.parse(localStorage.getItem('tdtable:' + T.path + ':colw'));
     } catch (e) { /* fresh */ }
     colW = Array.from({ length: n }, (_, i) =>
-      (w && typeof w[i] === 'number' ? Math.max(MINW, w[i]) : DEFW));
+      (saved && typeof saved[i] === 'number' ? Math.max(MINW, saved[i]) : auto.w[i]));
+  }
+
+  function updateEff() {
+    eW = colW.slice();
+    if (!eW.length || !body) return;
+    const leftover = body.clientWidth - eW.reduce((a, b) => a + b, 0);
+    if (leftover > 0) {
+      const f = fillIdx >= 0 && fillIdx < eW.length ? fillIdx : eW.length - 1;
+      eW[f] += leftover;
+    }
   }
 
   function saveColW() {
@@ -256,7 +318,14 @@ const Grid = (() => {
     const samePath = T && T.path === t.path;
     cancelEdit();
     T = t;
-    if (!samePath || colW.length !== numCols()) loadColW();
+    if (!samePath || colW.length !== numCols()) {
+      loadColW();
+    } else if (numCols()) {
+      // same table: keep the user's widths but re-pick the fill column
+      // (a col move or edit may have shifted where the long text lives)
+      const auto = computeAuto();
+      fillIdx = auto.maxCh.indexOf(Math.max(...auto.maxCh));
+    }
     if (!samePath) { sortCol = -1; sortDir = 0; sel = null; body.scrollTop = 0; }
     renderAll();
   }
@@ -305,8 +374,8 @@ const Grid = (() => {
     }
     const left = colLeft(c);
     if (left < body.scrollLeft) body.scrollLeft = left;
-    else if (left + colW[c] > body.scrollLeft + body.clientWidth) {
-      body.scrollLeft = left + colW[c] - body.clientWidth;
+    else if (left + eW[c] > body.scrollLeft + body.clientWidth) {
+      body.scrollLeft = left + eW[c] - body.clientWidth;
     }
   }
 
@@ -321,6 +390,7 @@ const Grid = (() => {
 
   function startEdit(vr, c, initial) {
     if (!T || !T.editable || vr < 0 || vr >= viewRows.length) return;
+    if (editing && editing.vr === vr && editing.c === c) return;
     cancelEdit();
     editing = { vr, c };
     editInput = document.createElement('input');
@@ -328,7 +398,7 @@ const Grid = (() => {
     editInput.value = initial !== undefined ? initial : val(datR(vr), c);
     editInput.style.top = (vr * ROWH) + 'px';
     editInput.style.left = colLeft(c) + 'px';
-    editInput.style.width = colW[c] + 'px';
+    editInput.style.width = eW[c] + 'px';
     editInput.style.height = ROWH + 'px';
     spacer.appendChild(editInput);
     editInput.focus();
@@ -496,9 +566,27 @@ const Grid = (() => {
     const key = TD_KEYS[k.key] || (k.ch && k.ch.length === 1 ? k.ch : null);
     if (key === null) return;
     handleKey({
-      key, shiftKey: !!k.shift, ctrlKey: false, metaKey: false,
+      key, shiftKey: !!k.shift, ctrlKey: !!k.ctrl, metaKey: false,
       preventDefault: () => {},
     });
+  };
+
+  // In-TD clipboard rides through TD (offscreen CEF has no OS clipboard):
+  // keyboardin ctrl+c/x -> ForwardKey -> __tdCopy -> TSV over the WS ->
+  // ext sets ui.clipboard; ctrl+v -> ext reads ui.clipboard -> __tdPaste.
+  window.__tdCopy = (cut) => {
+    if (editing || !sel) return;
+    const tsv = selectionTSV();
+    if (tsv && cbs.clip) cbs.clip(tsv);
+    if (cut) clearSelection();
+  };
+
+  window.__tdPaste = (text) => {
+    if (editing && editInput) {
+      editInput.value += String(text || '');
+      return;
+    }
+    pasteTSV(String(text || ''));
   };
 
   // ---- context menu ------------------------------------------------------------------------
@@ -595,6 +683,14 @@ const Grid = (() => {
         return;
       }
       if (e.button !== 0) return;
+      const now = Date.now();
+      if (!e.shiftKey && hit.vr === lastPress.vr && hit.c === lastPress.c
+          && now - lastPress.t < 400) {
+        lastPress = { vr: -1, c: -1, t: 0 };
+        startEdit(hit.vr, hit.c);
+        return;
+      }
+      lastPress = { vr: hit.vr, c: hit.c, t: now };
       setAnchor(hit.vr, hit.c, e.shiftKey);
       capture(body, e);
       const onMove = (ev) => {
@@ -648,19 +744,41 @@ const Grid = (() => {
         return;
       }
       if (e.button !== 0) return;
-      if (e.shiftKey && sel) { sel.er = vr; sel.ec = numCols() - 1; sel.ac = 0; render(); }
-      else if (!inSel) selectRow(vr, false);
-      // drag past threshold -> row reorder (when the view matches DAT order)
-      if (!viewReorderable()) return;
+      // forwarded in-TD mouse events carry no modifier keys, so the gutter
+      // works modifier-free: drag on an unselected row range-selects rows,
+      // drag on an already-selected row reorders the selection.
+      // shift-click still extends in external browsers.
+      let mode = 'select';
+      if (e.shiftKey && sel) {
+        sel.er = vr;
+        sel.ac = 0;
+        sel.ec = numCols() - 1;
+        render();
+      } else if (inSel && viewReorderable()) {
+        mode = 'reorder';
+      } else {
+        selectRow(vr, false);
+      }
       const startY = e.clientY;
       let armed = false;
       let gap = -1;
+      const vrFromY = (ev) => {
+        const rect = body.getBoundingClientRect();
+        return (ev.clientY - rect.top + body.scrollTop) / ROWH;
+      };
       const onMove = (ev) => {
         if (!armed && Math.abs(ev.clientY - startY) < 5) return;
         armed = true;
-        const rect = body.getBoundingClientRect();
-        const y = ev.clientY - rect.top + body.scrollTop;
-        gap = Math.max(0, Math.min(Math.round(y / ROWH), viewRows.length));
+        if (mode === 'select') {
+          const tvr = Math.max(0, Math.min(Math.floor(vrFromY(ev)), viewRows.length - 1));
+          if (sel && sel.er !== tvr) {
+            sel.er = tvr;
+            scrollTo(tvr, 0);
+            render();
+          }
+          return;
+        }
+        gap = Math.max(0, Math.min(Math.round(vrFromY(ev)), viewRows.length));
         dropline.style.top = (gap * ROWH - 1) + 'px';
         dropline.style.width = totalW() + 'px';
         dropline.hidden = false;
@@ -669,7 +787,7 @@ const Grid = (() => {
         gutter.removeEventListener('pointermove', onMove);
         gutter.removeEventListener('pointerup', onUp);
         dropline.hidden = true;
-        if (!armed || gap < 0) return;
+        if (mode !== 'reorder' || !armed || gap < 0) return;
         const rows = selDatRows();
         const to = gap < viewRows.length ? datR(gap) : T.cells.length;
         cbs.moveRows(rows, to);
@@ -700,9 +818,10 @@ const Grid = (() => {
         e.preventDefault();
         const c = +rz.dataset.c;
         const startX = e.clientX;
-        const startW = colW[c];
+        const startW = eW[c];   // what the user sees (incl. fill stretch)
         const onMove = (ev) => {
           colW[c] = Math.max(MINW, startW + ev.clientX - startX);
+          updateEff();
           renderHead();
           render();
         };
@@ -728,6 +847,12 @@ const Grid = (() => {
           { label: 'Sort descending', fn: () => { sortCol = c; sortDir = -1; renderAll(); } },
           { label: 'Clear sort', disabled: sortDir === 0,
             fn: () => { sortDir = 0; sortCol = -1; renderAll(); } },
+          { label: 'Apply sort to DAT', disabled: ro || sortDir === 0 || !!filterStr,
+            fn: () => {
+              cbs.applySort(viewRows.slice());
+              sortDir = 0;
+              sortCol = -1;       // the reordered table broadcast follows
+            } },
           '-',
           { label: 'Insert column left', disabled: ro, fn: () => cbs.insertCols(c, 1) },
           { label: 'Insert column right', disabled: ro, fn: () => cbs.insertCols(c + 1, 1) },
@@ -737,11 +862,46 @@ const Grid = (() => {
         return;
       }
       if (e.button !== 0) return;
-      // click cycles sort: asc -> desc -> off
-      if (sortCol !== c || sortDir === 0) { sortCol = c; sortDir = 1; }
-      else if (sortDir === 1) sortDir = -1;
-      else { sortDir = 0; sortCol = -1; }
-      renderAll();
+      // drag reorders the column (writes the DAT); plain click cycles the
+      // view-only sort asc -> desc -> off on release
+      const startX = e.clientX;
+      let dragging = false;
+      let gap = -1;
+      const onMove = (ev) => {
+        if (!dragging && Math.abs(ev.clientX - startX) < 6) return;
+        if (!T || !T.editable) return;
+        dragging = true;
+        const bodyRect = body.getBoundingClientRect();
+        const x = ev.clientX - bodyRect.left + body.scrollLeft;
+        const cc = colAt(Math.max(0, Math.min(x, totalW() - 1)));
+        gap = x > colLeft(cc) + eW[cc] / 2 ? cc + 1 : cc;
+        const gridRect = el.getBoundingClientRect();
+        colDrop.style.left =
+          (bodyRect.left - gridRect.left + colLeft(gap) - body.scrollLeft - 1) + 'px';
+        colDrop.hidden = false;
+      };
+      const onUp = () => {
+        colhead.removeEventListener('pointermove', onMove);
+        colhead.removeEventListener('pointerup', onUp);
+        colDrop.hidden = true;
+        if (dragging) {
+          if (gap >= 0 && gap !== c && gap !== c + 1) {
+            // keep the resized widths attached to their columns
+            const w = colW.splice(c, 1)[0];
+            colW.splice(gap - (c < gap ? 1 : 0), 0, w);
+            saveColW();
+            cbs.moveCols([c], gap);
+          }
+          return;
+        }
+        if (sortCol !== c || sortDir === 0) { sortCol = c; sortDir = 1; }
+        else if (sortDir === 1) sortDir = -1;
+        else { sortDir = 0; sortCol = -1; }
+        renderAll();
+      };
+      capture(colhead, e);
+      colhead.addEventListener('pointermove', onMove);
+      colhead.addEventListener('pointerup', onUp);
     });
   }
 
@@ -777,6 +937,7 @@ const Grid = (() => {
         <div id="rows"></div>
         <div id="dropline" hidden></div>
       </div></div>
+      <div id="coldropline" hidden></div>
       <div id="emptystate">NO TARGET TABLE</div>
       <textarea id="clip" tabindex="-1" autocomplete="off"></textarea>`;
     body = el.querySelector('#body');
@@ -786,6 +947,7 @@ const Grid = (() => {
     gutterInner = el.querySelector('#gutterinner');
     emptyEl = el.querySelector('#emptystate');
     dropline = el.querySelector('#dropline');
+    colDrop = el.querySelector('#coldropline');
     clip = el.querySelector('#clip');
     clip.addEventListener('keydown', (e) => { if (!editing) handleKey(e); });
     // capture phase: runs BEFORE the handler that may open a menu on this
@@ -794,7 +956,11 @@ const Grid = (() => {
     document.addEventListener('pointerdown', (e) => {
       if (ctxEl && !ctxEl.contains(e.target)) closeCtx();
     }, true);
-    window.addEventListener('resize', requestRender);
+    window.addEventListener('resize', () => {
+      updateEff();           // re-stretch the fill column to the new panel
+      renderHead();
+      requestRender();
+    });
     bindBody();
     bindGutter();
     bindHead();
@@ -811,5 +977,12 @@ const Grid = (() => {
     return T ? { rows: T.cells.length, cols: numCols(), editable: T.editable } : null;
   }
 
-  return { init, setTable, applyEdits, setFilter, dims };
+  // row height must stay in sync with the --rowh CSS var (virtualization
+  // math); called by main.js when a {t:style} broadcast lands
+  function setStyle(s) {
+    if (s && typeof s.rowh === 'number' && s.rowh > 0) ROWH = s.rowh;
+    if (T) renderAll();
+  }
+
+  return { init, setTable, applyEdits, setFilter, dims, setStyle };
 })();

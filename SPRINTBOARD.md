@@ -7,19 +7,24 @@ always before pushes.
 
 ## Status — 2026-06-12
 
-Session 1: repo scaffolded from the TD-WEBgui-controller architecture,
-**M1 done** (every core-grid feature verified in a real browser,
-`?mock=1`, clean console) and **M2 core done** — the TD instance came
-back mid-session, the comp was built live in `td-controller-dev.6.toe`
-(/project1/TableEditor) and the full bidirectional loop verified:
-web edit → DAT, TD write → delta → page, structural insert over the
-real WS, read-only detection on a cooked DAT, popup window, 0.1% cook
-budget. Remaining M2: in-TD input hands-on (Vincent at the machine) and
-a 1k-row `_rewrite` cost check; then **M3 (structure & clipboard
-power)**. Lister feature set researched
-(docs.derivative.ca/Palette:lister) as the parity benchmark. Note: the
-test comp lives in the sibling repo's dev .toe — this repo has no .toe
-yet; rebuild anywhere with td/build_component.py.
+Session 1: scaffold + **M1 done** (core grid, browser-verified) +
+**M2 core done** (live bidirectional sync in TD 2025.32820, comp at
+/project1/TableEditor in td-controller-dev.6.toe, 0.1% cook budget).
+Vincent's first hands-on drove two RFE rounds, all web-side verified in
+mock with clean console: in-TD input parity (double-press editing,
+modifier-free gutter select/reorder, column drag-reorder, Apply-sort-
+to-DAT, clipboard through ui.clipboard — dblclick/copy/selection
+outputs also verified live in-TD over real interactMouse/keyboardin
+paths), Lister-style sel_rows/sel_cells DAT outputs, the alt-row
+selection-visibility CSS fix, content-aware column widths with a fill
+column, and the comp Style page ({t:style} live restyle + themes).
+**Pending live TD checks (TD MCP dropped mid-session):** one
+`reinitextensions` to apply the Style page + verify a theme switch
+renders; Vincent re-test of: double-click edit, gutter drag select/
+reorder, column drag, ctrl+c/x/v, sel_rows/sel_cells outputs wired
+into a network. Then remaining M2 (1k-row `_rewrite` cost) and **M3**.
+This repo has no .toe; rebuild anywhere with td/build_component.py
+(exec with encoding='utf-8').
 
 ## Design decisions (locked 2026-06-12)
 
@@ -149,6 +154,64 @@ yet; rebuild anywhere with td/build_component.py.
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1e (RFE: style page, smart column widths, selection visibility)
+- **Selection visibility bug** (Vincent's report): `.vrow.alt .cell`
+  (specificity 0,3,0) outranked `.cell.sel` (0,2,0), so selected cells
+  on alternate striped rows showed no feedback at all. Selection/cursor
+  rules now carry `.vrow.alt`-level specificity; verified computed
+  backgrounds differ on alt rows. `--accent-soft`/`--cur-bg` now derive
+  from `--accent` via color-mix so one Style par recolors selection.
+- **Content-aware column widths**: columns auto-fit their content
+  (sample ≤500 rows, char-count × font-derived px, clamp 40–420);
+  the content-richest column is the fill column and absorbs leftover
+  viewport width (effective widths = persisted base + fill stretch, so
+  stored widths never bloat). Manual resizes edit the base and persist;
+  window resize re-stretches. Verified in mock: 6 cols → 46/118/86/78/
+  46/843 summing exactly to the 1217px body.
+- **Style page** (sibling pattern): ten RGB color pars + Fontfamily/
+  Fontsize/Rowheight + Theme menu (custom/dark/light/synthwave) created
+  idempotently by `_ensureSetup`; `{t:style}` broadcasts (coalesced via
+  run-delay) + style dict on every table msg; page maps them to CSS
+  vars; `Grid.setStyle` keeps the virtualization ROWH in sync with
+  `--rowh` (verified: row tops re-laid at 34px). **Live TD verification
+  pending** — TD MCP dropped mid-reinit; the code is file-synced, one
+  `reinitextensions` applies it (Style page self-creates).
+- Preview harness note: the Xcode python3 shim now fails with
+  PermissionError under preview_start; launch.json points at
+  /opt/homebrew/bin/python3 (this session served via a Bash background
+  http.server on :8127).
+
+### 2026-06-12 — Session 1d (RFE round: in-TD input parity + selection outputs)
+- Vincent's hands-on: scroll + keyboard ✓; double-click, row
+  multi-select, copy — ✗ in-TD. Root causes: interactMouse never
+  synthesizes dblclick; forwarded mouse carries no modifier keys;
+  offscreen CEF has no OS clipboard.
+- **Double-press detection in the page** (two pointerdowns on the same
+  cell <400ms) replaces reliance on native dblclick — verified live
+  in-TD via two rapid interactMouse clicks: editor opened with text
+  select-all highlighted on Vincent's colDefineOptions table (edit
+  Esc'd, table untouched).
+- **Modifier-free gutter**: drag on an unselected row range-selects;
+  drag on a selected row reorders (dropline); shift-click still extends
+  in external browsers. Verified in mock (range 4×6; block of 4 rows
+  moved to top).
+- **Column drag-reorder** on the header (writes the DAT via movecols;
+  widths follow their columns); plain click still cycles sort.
+  **Apply sort to DAT** in the header context menu sends `{t:reorder}`
+  (full data-row permutation; header pinned; ext rewrites). Both
+  verified in mock.
+- **In-TD clipboard through TD**: keyboardin forwards ctrl/cmd;
+  ForwardKey intercepts ctrl+c/x/v → `__tdCopy`/`__tdPaste` →
+  `{t:clip}` → `ui.clipboard`. Verified live: ctrl+c put the selected
+  cell's TSV into ui.clipboard ('columnLabel').
+- **Selection outputs**: `{t:sel}` (debounced 150ms) → ext mirrors into
+  sel_rows/sel_cells tableDATs wired to outDATs (comp gains DAT out
+  connectors; created idempotently by _ensureSetup, cleared on
+  retarget). Verified live through a real forwarded interactMouse
+  click: sel_rows filled with the clicked row of Vincent's lister
+  config table.
+- Protocol additions documented in README: reorder / sel / clip.
 
 ### 2026-06-12 — Session 1c (M2 core: live bidirectional sync in TD)
 - TD MCP recovered mid-session; built /project1/TableEditor in

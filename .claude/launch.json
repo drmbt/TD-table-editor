@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-mock",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8125", "--directory", "web"],
+      "port": 8125
+    },
+    {
+      "name": "web-mock-alt",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8126", "--directory", "web"],
+      "port": 8126
+    }
+  ]
+}

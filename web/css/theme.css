@@ -1,0 +1,316 @@
+/* TD Table Editor — dark theme. All colors via vars so a future comp Style
+ * page (sprintboard M5) can restyle live, like the sibling project. */
+
+:root {
+  --bg: #16181c;
+  --panel: #1d2026;
+  --cell: #1a1d22;
+  --cell-alt: #1d2127;
+  --grid-line: #2a2e36;
+  --header-bg: #232730;
+  --gutter-bg: #1f232b;
+  --text: #d8dade;
+  --text-dim: #8b909a;
+  --accent: #5fb4ff;
+  --accent-soft: rgba(95, 180, 255, 0.18);
+  --sel-border: #5fb4ff;
+  --cur-bg: rgba(95, 180, 255, 0.10);
+  --warn: #e8b339;
+  --ok: #36b46e;
+  --down: #b4444a;
+  --font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: 12px/1.35 "SF Mono", Menlo, Consolas, monospace;
+  --rowh: 26px;
+  --gutterw: 52px;
+  --radius: 5px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #app { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--font);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app { display: flex; flex-direction: column; }
+
+/* ---- toolbar ----------------------------------------------------------- */
+
+#toolbar, #statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  flex: none;
+}
+
+#toolbar { border-bottom: 1px solid var(--grid-line); }
+#statusbar {
+  border-top: 1px solid var(--grid-line);
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+.flexspacer { flex: 1; }
+
+#targetname { font: var(--mono); color: var(--accent); }
+
+#robadge {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+#filter {
+  background: var(--cell);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: var(--font);
+  padding: 3px 8px;
+  width: 180px;
+  outline: none;
+}
+#filter:focus { border-color: var(--accent); }
+
+#toolbar button {
+  background: var(--header-bg);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: var(--font);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+#toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+#toolbar button:disabled { opacity: 0.4; cursor: default; }
+
+#hdrtoggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.conn { font-size: 11px; }
+.conn.ok { color: var(--ok); }
+.conn.down { color: var(--down); }
+.conn.mock { color: var(--warn); }
+
+/* ---- grid chrome -------------------------------------------------------- */
+
+#grid {
+  flex: 1;
+  display: grid;
+  grid-template:
+    "corner colhead" var(--rowh)
+    "gutter body" 1fr / var(--gutterw) 1fr;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+}
+
+#corner {
+  grid-area: corner;
+  background: var(--header-bg);
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+  z-index: 3;
+}
+
+#colhead {
+  grid-area: colhead;
+  overflow: hidden;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--grid-line);
+  z-index: 2;
+  position: relative;
+}
+
+#gutter {
+  grid-area: gutter;
+  overflow: hidden;
+  background: var(--gutter-bg);
+  border-right: 1px solid var(--grid-line);
+  z-index: 2;
+  position: relative;
+}
+
+#body {
+  grid-area: body;
+  overflow: auto;
+  position: relative;
+}
+
+#colheadinner, #gutterinner { position: absolute; top: 0; left: 0; }
+#spacer { position: relative; }
+
+/* ---- cells --------------------------------------------------------------- */
+
+.vrow {
+  position: absolute;
+  left: 0;
+  display: flex;
+  height: var(--rowh);
+}
+
+.cell {
+  flex: none;
+  height: var(--rowh);
+  padding: 0 7px;
+  line-height: calc(var(--rowh) - 1px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+  background: var(--cell);
+  cursor: cell;
+}
+.vrow.alt .cell { background: var(--cell-alt); }
+
+.cell.sel { background: var(--accent-soft); }
+.cell.cur {
+  outline: 2px solid var(--sel-border);
+  outline-offset: -2px;
+  background: var(--cur-bg);
+}
+
+.hcell {
+  flex: none;
+  height: var(--rowh);
+  padding: 0 7px;
+  line-height: calc(var(--rowh) - 1px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--grid-line);
+  background: var(--header-bg);
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 12px;
+  position: relative;
+  cursor: pointer;
+}
+.hcell:hover { color: var(--accent); }
+.hcell .sortmark { color: var(--accent); margin-left: 4px; font-size: 10px; }
+
+.hresize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.hresize:hover { background: var(--accent-soft); }
+
+.gcell {
+  position: absolute;
+  left: 0;
+  width: var(--gutterw);
+  height: var(--rowh);
+  line-height: calc(var(--rowh) - 1px);
+  text-align: right;
+  padding: 0 8px 0 0;
+  color: var(--text-dim);
+  font: var(--mono);
+  border-bottom: 1px solid var(--grid-line);
+  cursor: grab;
+}
+.gcell.sel { background: var(--accent-soft); color: var(--accent); }
+
+/* ---- editing / drag feedback ---------------------------------------------- */
+
+#celledit {
+  position: absolute;
+  z-index: 5;
+  background: var(--cell);
+  color: var(--text);
+  border: 2px solid var(--accent);
+  font: var(--font);
+  padding: 0 5px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#dropline {
+  position: absolute;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 6;
+  pointer-events: none;
+}
+
+#clip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  opacity: 0.01;
+}
+
+/* ---- context menu ----------------------------------------------------------- */
+
+#ctxmenu {
+  position: fixed;
+  z-index: 50;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+  min-width: 170px;
+}
+#ctxmenu .item {
+  padding: 5px 14px;
+  cursor: pointer;
+  font-size: 12px;
+}
+#ctxmenu .item:hover { background: var(--accent-soft); color: var(--accent); }
+#ctxmenu .item.disabled { opacity: 0.35; pointer-events: none; }
+#ctxmenu .sep { height: 1px; background: var(--grid-line); margin: 4px 0; }
+
+/* ---- empty state --------------------------------------------------------------- */
+
+#emptystate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  z-index: 1;
+}
+
+/* ---- scrollbars ----------------------------------------------------------------- */
+
+#body::-webkit-scrollbar { width: 11px; height: 11px; }
+#body::-webkit-scrollbar-track { background: var(--bg); }
+#body::-webkit-scrollbar-thumb {
+  background: var(--grid-line);
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+#body::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+#body::-webkit-scrollbar-corner { background: var(--bg); }

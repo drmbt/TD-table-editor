@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+Backup/
+*.toe.bak
+CrashAutoSave*
+.claude/settings.local.json

@@ -44,9 +44,11 @@ class TableEditorExt:
 	# updates apply on reinitextensions (build_component creates bare DATs).
 
 	_PE2_PARS = ('Targetop Headerrow Refresh Openinbrowser Openviewer'
+				 ' Reloadclients'
 				 ' Bgcolor* Panelcolor* Cellcolor* Cellaltcolor* Gridcolor*'
 				 ' Headercolor* Guttercolor* Textcolor* Textdimcolor*'
-				 ' Accentcolor* Fontfamily Fontsize Rowheight Theme')
+				 ' Accentcolor* Highlightcolor* Fontfamily Fontsize Rowheight'
+				 ' Theme')
 
 	_PE2_TEXT = (
 		"def onPulse(par):\n"
@@ -58,6 +60,8 @@ class TableEditorExt:
 		"\t\twebbrowser.open('http://127.0.0.1:%d/' % parent().par.Port.eval())\n"
 		"\telif par.name == 'Openviewer':\n"
 		"\t\text.OpenWindow()\n"
+		"\telif par.name == 'Reloadclients':\n"
+		"\t\text.ReloadClients()\n"
 		"\treturn\n"
 		"\n"
 		"def onValueChange(par, prev):\n"
@@ -85,6 +89,7 @@ class TableEditorExt:
 		('Textcolor', 'Text', (0.847, 0.855, 0.871)),
 		('Textdimcolor', 'Text Dim', (0.545, 0.565, 0.604)),
 		('Accentcolor', 'Accent', (0.373, 0.706, 1.0)),
+		('Highlightcolor', 'Highlight', (0.373, 0.706, 1.0)),
 	)
 
 	_STYLE_INTS = (
@@ -99,6 +104,17 @@ class TableEditorExt:
 			'Gridcolor': (0.165, 0.180, 0.212), 'Headercolor': (0.137, 0.153, 0.188),
 			'Guttercolor': (0.122, 0.137, 0.169), 'Textcolor': (0.847, 0.855, 0.871),
 			'Textdimcolor': (0.545, 0.565, 0.604), 'Accentcolor': (0.373, 0.706, 1.0),
+			'Highlightcolor': (0.373, 0.706, 1.0),
+		},
+		# off-white text on near-black, charcoal cells, reddish-orange
+		# accent, desaturated yellow highlight (Vincent's house style)
+		'drmbt': {
+			'Bgcolor': (0.067, 0.067, 0.071), 'Panelcolor': (0.118, 0.118, 0.125),
+			'Cellcolor': (0.102, 0.102, 0.106), 'Cellaltcolor': (0.118, 0.118, 0.122),
+			'Gridcolor': (0.176, 0.176, 0.184), 'Headercolor': (0.137, 0.137, 0.145),
+			'Guttercolor': (0.110, 0.110, 0.114), 'Textcolor': (0.949, 0.937, 0.910),
+			'Textdimcolor': (0.604, 0.588, 0.553), 'Accentcolor': (1.0, 0.3, 0.3),
+			'Highlightcolor': (0.780, 0.710, 0.450),
 		},
 		'light': {
 			'Bgcolor': (0.910, 0.918, 0.933), 'Panelcolor': (0.957, 0.961, 0.973),
@@ -106,6 +122,7 @@ class TableEditorExt:
 			'Gridcolor': (0.831, 0.847, 0.875), 'Headercolor': (0.890, 0.902, 0.925),
 			'Guttercolor': (0.925, 0.933, 0.949), 'Textcolor': (0.165, 0.176, 0.200),
 			'Textdimcolor': (0.420, 0.439, 0.467), 'Accentcolor': (0.165, 0.435, 0.722),
+			'Highlightcolor': (0.165, 0.435, 0.722),
 		},
 		'synthwave': {
 			'Bgcolor': (0.039, 0.039, 0.071), 'Panelcolor': (0.082, 0.071, 0.169),
@@ -113,6 +130,7 @@ class TableEditorExt:
 			'Gridcolor': (0.173, 0.141, 0.322), 'Headercolor': (0.125, 0.102, 0.251),
 			'Guttercolor': (0.102, 0.082, 0.208), 'Textcolor': (0.847, 0.831, 0.910),
 			'Textdimcolor': (0.561, 0.525, 0.678), 'Accentcolor': (0.706, 0.373, 1.0),
+			'Highlightcolor': (0.706, 0.373, 1.0),
 		},
 	}
 
@@ -150,6 +168,16 @@ class TableEditorExt:
 
 	def _ensureSetup(self):
 		comp = self.ownerComp
+		# pars added after the initial build land on the main page here
+		try:
+			if getattr(comp.par, 'Reloadclients', None) is None:
+				tp = getattr(comp.par, 'Targetop', None)
+				mainPage = (tp.page if tp is not None
+							else comp.appendCustomPage('Table Editor'))
+				mainPage.appendPulse('Reloadclients',
+									 label='Reload Web Clients')
+		except Exception as e:
+			debug('TableEditor: main par setup failed: %s' % e)
 		# Style page (idempotent, per-par: new pars append on reinit)
 		try:
 			page = None
@@ -300,6 +328,19 @@ class TableEditorExt:
 			except Exception as e:
 				debug('TableEditor: window open failed: %s' % e)
 
+	def ReloadClients(self):
+		"""Force every connected page to reload (fresh js/css from disk).
+		The recovery for stale pages — e.g. a webrender that loaded before
+		a repo update and ignores newer protocol messages."""
+		self._broadcast({'t': 'reload'})
+		try:
+			web = self.ownerComp.op('webrender1')
+			if web is not None:
+				# belt for a wedged page that never dispatches the WS msg
+				web.executeJavaScript('location.reload()')
+		except Exception:
+			pass
+
 	# ---- style ------------------------------------------------------------------
 
 	def _hex(self, name):
@@ -319,7 +360,8 @@ class TableEditorExt:
 				('Cellcolor', 'cell'), ('Cellaltcolor', 'cellalt'),
 				('Gridcolor', 'grid'), ('Headercolor', 'header'),
 				('Guttercolor', 'gutter'), ('Textcolor', 'text'),
-				('Textdimcolor', 'textdim'), ('Accentcolor', 'accent')):
+				('Textdimcolor', 'textdim'), ('Accentcolor', 'accent'),
+				('Highlightcolor', 'highlight')):
 			h = self._hex(parName)
 			if h:
 				style[key] = h

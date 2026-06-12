@@ -18,6 +18,7 @@
     bg: '--bg', panel: '--panel', cell: '--cell', cellalt: '--cell-alt',
     grid: '--grid-line', header: '--header-bg', gutter: '--gutter-bg',
     text: '--text', textdim: '--text-dim', accent: '--accent',
+    highlight: '--hl',
   };
 
   function applyStyle(s) {
@@ -53,6 +54,8 @@
     message(msg) {
       if (msg.t === 'style') {
         applyStyle(msg.style);
+      } else if (msg.t === 'reload') {
+        location.reload();      // Reloadclients pulse: stale-page recovery
       } else if (msg.t === 'table') {
         table = msg;
         if (msg.style) applyStyle(msg.style);
@@ -100,4 +103,6 @@
   headerCb.addEventListener('change', () => {
     Bridge.send({ t: 'setheader', on: headerCb.checked });
   });
+
+  window.__applyStyle = applyStyle;   // manual/debug hook (CEF devtools-less)
 })();

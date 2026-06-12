@@ -37,7 +37,8 @@ const Grid = (() => {
   let sortDir = 0;         // 0 none, 1 asc, -1 desc
   let filterStr = '';
   let viewRows = [];       // DAT row indices, header excluded
-  let sel = null;          // {ar,ac,er,ec} in view coords (anchor + extent)
+  let sel = null;          // ACTIVE rect {ar,ac,er,ec} in view coords
+  let extraSels = [];      // additional rects from ctrl/cmd multi-select
   let editing = null;      // {vr,c}
   let renderQueued = false;
   // interactMouse never synthesizes a native dblclick in offscreen CEF, so
@@ -69,21 +70,24 @@ const Grid = (() => {
     }
     return eW.length - 1;
   };
-  const normSel = () => sel && {
-    r0: Math.min(sel.ar, sel.er), r1: Math.max(sel.ar, sel.er),
-    c0: Math.min(sel.ac, sel.ec), c1: Math.max(sel.ac, sel.ec),
-  };
+  const normRect = (r) => ({
+    r0: Math.min(r.ar, r.er), r1: Math.max(r.ar, r.er),
+    c0: Math.min(r.ac, r.ec), c1: Math.max(r.ac, r.ec),
+  });
+  const normSel = () => sel && normRect(sel);
+  const allRects = () => (sel ? [...extraSels, sel] : extraSels.slice()).map(normRect);
+  const fullWidth = (r) => r.c0 === 0 && r.c1 === numCols() - 1;
   const viewReorderable = () => T && T.editable && sortDir === 0 && !filterStr;
 
-  // selected DAT rows (whole-row ops use the selection's row span)
+  // selected DAT rows across every rect, in view order (whole-row ops)
   function selDatRows() {
-    const s = normSel();
-    if (!s) return [];
-    const rows = [];
-    for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
-      rows.push(datR(vr));
+    const have = new Set();
+    for (const r of allRects()) {
+      for (let vr = r.r0; vr <= Math.min(r.r1, viewRows.length - 1); vr++) {
+        have.add(viewRows[vr]);
+      }
     }
-    return rows;
+    return viewRows.filter((dr) => have.has(dr));
   }
 
   // ---- view computation ------------------------------------------------------
@@ -116,12 +120,15 @@ const Grid = (() => {
   }
 
   function clampSel() {
-    if (!sel) return;
     const maxR = viewRows.length - 1;
     const maxC = numCols() - 1;
-    if (maxR < 0 || maxC < 0) { sel = null; return; }
-    for (const k of ['ar', 'er']) sel[k] = Math.max(0, Math.min(sel[k], maxR));
-    for (const k of ['ac', 'ec']) sel[k] = Math.max(0, Math.min(sel[k], maxC));
+    if (maxR < 0 || maxC < 0) { sel = null; extraSels = []; return; }
+    const clampRect = (r) => {
+      for (const k of ['ar', 'er']) r[k] = Math.max(0, Math.min(r[k], maxR));
+      for (const k of ['ac', 'ec']) r[k] = Math.max(0, Math.min(r[k], maxC));
+    };
+    if (sel) clampRect(sel);
+    extraSels.forEach(clampRect);
   }
 
   // ---- rendering ----------------------------------------------------------------
@@ -177,7 +184,10 @@ const Grid = (() => {
     const first = Math.max(0, Math.floor(top / ROWH) - OVERSCAN);
     const last = Math.min(viewRows.length - 1,
       Math.ceil((top + body.clientHeight) / ROWH) + OVERSCAN);
-    const s = normSel();
+    const rects = allRects();
+    const inAny = (vr, c) => rects.some((r) =>
+      vr >= r.r0 && vr <= r.r1 && c >= r.c0 && c <= r.c1);
+    const rowInAny = (vr) => rects.some((r) => vr >= r.r0 && vr <= r.r1);
 
     const frag = document.createDocumentFragment();
     const gfrag = document.createDocumentFragment();
@@ -193,9 +203,7 @@ const Grid = (() => {
         cell.dataset.vr = vr;
         cell.dataset.c = c;
         cell.textContent = val(r, c);
-        if (s && vr >= s.r0 && vr <= s.r1 && c >= s.c0 && c <= s.c1) {
-          cell.classList.add('sel');
-        }
+        if (inAny(vr, c)) cell.classList.add('sel');
         if (sel && vr === sel.ar && c === sel.ac) cell.classList.add('cur');
         row.appendChild(cell);
       }
@@ -206,7 +214,7 @@ const Grid = (() => {
       g.style.top = (vr * ROWH) + 'px';
       g.dataset.vr = vr;
       g.textContent = r;                     // DAT row index, on purpose
-      if (s && vr >= s.r0 && vr <= s.r1) g.classList.add('sel');
+      if (rowInAny(vr)) g.classList.add('sel');
       gfrag.appendChild(g);
     }
     rowsEl.textContent = '';
@@ -235,7 +243,9 @@ const Grid = (() => {
       }
     }
     const s = normSel();
-    if (s) {
+    if (extraSels.length) {
+      selInfo = `${selDatRows().length} rows / ${extraSels.length + (sel ? 1 : 0)} areas`;
+    } else if (s) {
       const nr = s.r1 - s.r0 + 1;
       const nc = s.c1 - s.c0 + 1;
       selInfo = nr * nc > 1 ? `${nr}×${nc} selected`
@@ -361,7 +371,7 @@ const Grid = (() => {
     vr = Math.max(0, Math.min(vr, viewRows.length - 1));
     c = Math.max(0, Math.min(c, numCols() - 1));
     if (extend && sel) { sel.er = vr; sel.ec = c; }
-    else sel = { ar: vr, ac: c, er: vr, ec: c };
+    else { sel = { ar: vr, ac: c, er: vr, ec: c }; extraSels = []; }
     scrollTo(vr, c);
     render();
   }
@@ -437,12 +447,16 @@ const Grid = (() => {
 
   function clearSelection() {
     if (!T || !T.editable) return;
-    const s = normSel();
-    if (!s) return;
     const edits = [];
-    for (let vr = s.r0; vr <= s.r1; vr++) {
-      for (let c = s.c0; c <= s.c1; c++) {
-        if (val(datR(vr), c) !== '') edits.push({ r: datR(vr), c, v: '' });
+    const seen = new Set();
+    for (const s of allRects()) {
+      for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
+        for (let c = s.c0; c <= s.c1; c++) {
+          const key = datR(vr) + ':' + c;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (val(datR(vr), c) !== '') edits.push({ r: datR(vr), c, v: '' });
+        }
       }
     }
     if (edits.length) localEdit(edits);
@@ -451,10 +465,19 @@ const Grid = (() => {
   // ---- clipboard --------------------------------------------------------------------
 
   function selectionTSV() {
-    const s = normSel();
-    if (!s) return '';
+    const rects = allRects();
+    if (!rects.length) return '';
+    // multiple full-width rects (ctrl-picked rows): copy the row union in
+    // view order — the Lister-style "copy my picked rows" case. Otherwise
+    // copy the active rect only (multi-area block copy is ill-defined).
+    if (rects.length > 1 && rects.every(fullWidth)) {
+      return selDatRows()
+        .map((dr) => T.cells[dr].join('\t'))
+        .join('\n');
+    }
+    const s = normSel() || rects[rects.length - 1];
     const lines = [];
-    for (let vr = s.r0; vr <= s.r1; vr++) {
+    for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
       const cells = [];
       for (let c = s.c0; c <= s.c1; c++) cells.push(val(datR(vr), c));
       lines.push(cells.join('\t'));
@@ -520,6 +543,7 @@ const Grid = (() => {
     } else if (meta && (k === 'a' || k === 'A')) {
       if (viewRows.length && numCols()) {
         sel = { ar: 0, ac: 0, er: viewRows.length - 1, ec: numCols() - 1 };
+        extraSels = [];
         render();
       }
       e.preventDefault();
@@ -534,6 +558,7 @@ const Grid = (() => {
       e.preventDefault();
     } else if (k === 'Escape') {
       sel = null;
+      extraSels = [];
       render();
     } else if (!meta && k.length === 1 && sel && T.editable) {
       startEdit(sel.ar, sel.ac, k);
@@ -683,15 +708,24 @@ const Grid = (() => {
         return;
       }
       if (e.button !== 0) return;
+      const multi = (e.ctrlKey || e.metaKey) && !e.shiftKey;
       const now = Date.now();
-      if (!e.shiftKey && hit.vr === lastPress.vr && hit.c === lastPress.c
+      if (!e.shiftKey && !multi && hit.vr === lastPress.vr && hit.c === lastPress.c
           && now - lastPress.t < 400) {
         lastPress = { vr: -1, c: -1, t: 0 };
         startEdit(hit.vr, hit.c);
         return;
       }
       lastPress = { vr: hit.vr, c: hit.c, t: now };
-      setAnchor(hit.vr, hit.c, e.shiftKey);
+      if (multi && sel) {
+        // ctrl/cmd: keep the current rect, start a new active one here
+        extraSels.push({ ...sel });
+        sel = { ar: hit.vr, ac: hit.c, er: hit.vr, ec: hit.c };
+        scrollTo(hit.vr, hit.c);
+        render();
+      } else {
+        setAnchor(hit.vr, hit.c, e.shiftKey);
+      }
       capture(body, e);
       const onMove = (ev) => {
         const h = cellFromEvent(ev);
@@ -735,19 +769,37 @@ const Grid = (() => {
       e.preventDefault();
       clip.focus({ preventScroll: true });
       const vr = +g.dataset.vr;
-      const s = normSel();
-      const inSel = s && vr >= s.r0 && vr <= s.r1 && s.c0 === 0
-        && s.c1 === numCols() - 1;
+      const inSel = allRects().some((r) =>
+        vr >= r.r0 && vr <= r.r1 && fullWidth(r));
       if (e.button === 2) {
         if (!inSel) selectRow(vr, false);
         showCtx(e.clientX, e.clientY, cellCtxItems());
         return;
       }
       if (e.button !== 0) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+        // ctrl/cmd toggles the row in/out of a non-contiguous row set
+        // (flattens any cell rects to whole rows — gutter = row domain)
+        const rows = new Set();
+        for (const r of allRects()) {
+          for (let v = r.r0; v <= Math.min(r.r1, viewRows.length - 1); v++) rows.add(v);
+        }
+        if (rows.has(vr)) rows.delete(vr); else rows.add(vr);
+        const rects = [];
+        for (const v of [...rows].sort((a, b) => a - b)) {
+          const last = rects[rects.length - 1];
+          if (last && last.er === v - 1) last.er = v;
+          else rects.push({ ar: v, ac: 0, er: v, ec: numCols() - 1 });
+        }
+        sel = rects.pop() || null;
+        extraSels = rects;
+        render();
+        return;
+      }
       // forwarded in-TD mouse events carry no modifier keys, so the gutter
       // works modifier-free: drag on an unselected row range-selects rows,
       // drag on an already-selected row reorders the selection.
-      // shift-click still extends in external browsers.
+      // shift/ctrl-click work in external browsers.
       let mode = 'select';
       if (e.shiftKey && sel) {
         sel.er = vr;
@@ -801,7 +853,7 @@ const Grid = (() => {
   function selectRow(vr, extend) {
     if (!numCols()) return;
     if (extend && sel) { sel.er = vr; }
-    else sel = { ar: vr, ac: 0, er: vr, ec: numCols() - 1 };
+    else { sel = { ar: vr, ac: 0, er: vr, ec: numCols() - 1 }; extraSels = []; }
     sel.ac = 0;
     sel.ec = numCols() - 1;
     render();

@@ -155,6 +155,41 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
 
 ## Changelog
 
+### 2026-06-12 — Session 1h (RFE: drmbt theme, highlight color, hover, multi-select, reload pulse)
+- **Theme-needs-refresh diagnosis**: the in-TD page is almost certainly
+  running stale js — the `{t:style}` handler shipped in session 1e, but
+  the queued page reload was cut off when the MCP dropped, so style
+  broadcasts arrive and are ignored until one refresh. Added the
+  recovery: **Reloadclients pulse** → `{t:reload}` WS broadcast (+
+  executeJavaScript belt for a wedged webrender) → every client
+  reloads. After Vincent's next reload, theme switches should apply
+  live; if not, re-investigate the parexec with MCP.
+- **Highlight color**: new Highlightcolor Style par → `--hl`; selection,
+  cursor and hover tints now derive from it via color-mix (accent and
+  highlight restyle independently). All themes gained the key.
+- **drmbt theme**: off-white text (#f2efe8) on near-black (#111112) with
+  charcoal cells, accent RGB(1,.3,.3) #ff4d4d, desaturated-yellow
+  highlight #c7b573. Verified visually in mock via the new
+  `window.__applyStyle` debug hook (screenshot: red-orange accent,
+  yellow selection tint).
+- **Hover highlight** on cells and gutter (`--hover-bg` from --hl);
+  in-TD gets it via the existing forwarded hover moves.
+- **Multi-select**: selection is now an active rect + extra rects.
+  Ctrl/cmd-click adds areas; gutter ctrl/cmd-click toggles rows in a
+  non-contiguous row set (contiguous runs merge); plain click/ctrl+a/
+  Esc collapse; clear (Delete) spans all areas; copy of multiple
+  full-width row rects emits the row union as TSV in view order
+  (Lister "copy picked rows"); sel payload rows = union of DAT
+  indices, so sel_rows mirrors every picked row. In-TD note: mouse
+  forwarding has no modifiers — gutter drag remains the in-TD path.
+  Verified in mock: 2-area cell select, 3-row toggle set, toggle-off,
+  TSV union (cues 2,7), payload [2,7], multi-area clear, regressions
+  (shift-extend, double-press edit) all green, clean console.
+- sel outputs + Reloadclients added to build_component for parity.
+- TD MCP unavailable all session — TD-side bits (Reloadclients par
+  creation, Highlightcolor par, drmbt preset, theme-switch live
+  restyle) need one reinitextensions + hands-on check next session.
+
 ### 2026-06-12 — Session 1f (verification pass: wire correctness under view state)
 - TD MCP offline; ran the offline checks. Syntax: py_compile clean on
   td/*, node --check clean on web/js/*.

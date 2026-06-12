@@ -13,11 +13,14 @@
   --text: #d8dade;
   --text-dim: #8b909a;
   --accent: #5fb4ff;
-  /* derived from --accent so one par restyles selection too (color-mix
-   * verified rendering in CEF 132 by the sibling project) */
-  --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
-  --sel-border: var(--accent);
-  --cur-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+  /* selection/hover tints derive from --hl (the Highlight Style par), so
+   * accent and highlight restyle independently (color-mix verified
+   * rendering in CEF 132 by the sibling project) */
+  --hl: #5fb4ff;
+  --accent-soft: color-mix(in srgb, var(--hl) 24%, transparent);
+  --sel-border: var(--hl);
+  --cur-bg: color-mix(in srgb, var(--hl) 12%, transparent);
+  --hover-bg: color-mix(in srgb, var(--hl) 9%, transparent);
   --warn: #e8b339;
   --ok: #36b46e;
   --down: #b4444a;
@@ -188,7 +191,11 @@ body {
 }
 .vrow.alt .cell { background: var(--cell-alt); }
 
-/* selection must outrank the .vrow.alt stripe rule above, or selected
+/* hover feedback (in-TD too: forwarded hover moves give CEF real :hover) */
+.vrow .cell:hover, .vrow.alt .cell:hover { background: var(--hover-bg); }
+.gcell:hover { background: var(--hover-bg); color: var(--text); }
+
+/* selection must outrank the stripe and hover rules above, or selected
  * cells on alternate rows show no feedback at all */
 .vrow .cell.sel, .vrow.alt .cell.sel { background: var(--accent-soft); }
 .vrow .cell.cur, .vrow.alt .cell.cur {

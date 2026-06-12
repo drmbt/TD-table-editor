@@ -43,6 +43,8 @@ def build():
 	page.appendPulse('Refresh', label='Refresh From Target')
 	page.appendPulse('Openviewer', label='Open Viewer Window')
 	page.appendPulse('Openinbrowser', label='Open In Browser')
+	page.appendPulse('Reloadclients', label='Reload Web Clients')
+	# Style page pars are created by ext._ensureSetup() (canonical there)
 
 	# ---- file-synced DATs ---------------------------------------------------
 	def fileDAT(name, path):
@@ -94,6 +96,17 @@ def build():
 	de = comp.create(datexecuteDAT, 'datexec_target')
 	de.par.tablechange = True
 
+	# ---- selection outputs: sel_rows/sel_cells -> outDATs (comp connectors) --
+	# (also created/wired by ext._ensureSetup for comps built before this)
+	selRows = comp.create(tableDAT, 'sel_rows')
+	selRows.clear()
+	selCells = comp.create(tableDAT, 'sel_cells')
+	selCells.clear()
+	outRows = comp.create(outDAT, 'out_selrows')
+	outRows.inputConnectors[0].connect(selRows)
+	outCells = comp.create(outDAT, 'out_selcells')
+	outCells.inputConnectors[0].connect(selCells)
+
 	# ---- webrender TOP --------------------------------------------------------
 	web = comp.create(webrenderTOP, 'webrender1')
 	web.par.url = 'http://127.0.0.1:%d/' % PORT
@@ -142,6 +155,8 @@ def build():
 		('panel1', -200, -100), ('chopexec_mouse', 0, -100),
 		('webrender1', 240, -100), ('info_webrender', 460, -100),
 		('window1', 680, -100),
+		('sel_rows', 680, -400), ('out_selrows', 900, -400),
+		('sel_cells', 680, -550), ('out_selcells', 900, -550),
 	]
 	for name, x, y in grid:
 		o = comp.op(name)

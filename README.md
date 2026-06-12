@@ -42,8 +42,9 @@ This project takes the architecture proven by
   snappy)
 - **Cell editing**: double-click, Enter, or just type; Esc reverts;
   Tab/Enter commit and advance
-- **Multi-cell selection**: click-drag ranges, shift-click extend, row
-  gutter and column header selection, full keyboard navigation
+- **Multi-cell selection**: click-drag ranges, shift-click extend,
+  **ctrl/cmd-click adds non-contiguous areas** (and toggles rows on the
+  gutter — copy your picked rows as TSV), full keyboard navigation
 - **Copy / cut / paste** TSV blocks — interoperable with Excel, Sheets,
   and text editors
 - **Row reordering** by dragging the row gutter (writes the DAT); dragging
@@ -66,9 +67,12 @@ This project takes the architecture proven by
   columns stay narrow, long-text columns get more room (capped), and the
   content-richest column stretches to fill the panel so no space is
   wasted. Manual drag-resizes persist per table and override auto widths
-- **Style page** on the comp: ten theme colors, font family/size and row
-  height restyle every connected client live (dark / light / synthwave
-  presets via the Theme menu, tweakable from there)
+- **Style page** on the comp: eleven theme colors (incl. a dedicated
+  **Highlight** color for selection/hover tints, independent of the
+  accent), font family/size and row height restyle every connected
+  client live (dark / drmbt / light / synthwave presets via the Theme
+  menu, tweakable from there). A **Reload Web Clients** pulse force-
+  refreshes every connected page (stale-js recovery)
 - **Header row** mode: first DAT row becomes the sticky column header
 - Read-only mode with banner for non-editable DATs (cooked outputs,
   locked) — same rule as TD's own viewer

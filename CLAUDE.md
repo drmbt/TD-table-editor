@@ -46,9 +46,15 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 (→ sel_rows/sel_cells output DATs) `{t:clip,text}` (→ ui.clipboard)
 `{t:setheader,on}` `{t:settable,path}`;
 TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
-`{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:error,msg}`.
+`{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:reload}`
+(Reloadclients pulse — stale-page recovery) `{t:error,msg}`.
 Style dict (comp Style page → CSS vars): bg panel cell cellalt grid
-header gutter text textdim accent font fontsize rowh. In-TD ctrl+c/x/v
+header gutter text textdim accent highlight font fontsize rowh —
+selection/hover tints derive from `highlight` (--hl), not accent.
+Themes: custom/dark/drmbt/light/synthwave. Selection model: one ACTIVE
+rect + extra rects (ctrl/cmd-click adds areas; gutter ctrl-click
+toggles rows; in-TD mouse forwarding has no modifiers — gutter drag is
+the in-TD multi-select). In-TD ctrl+c/x/v
 route through ui.clipboard (ForwardKey intercepts); column widths are
 content-aware with a fill column (the content-richest column absorbs
 spare viewport width); saved manual widths override auto.

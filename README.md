@@ -124,8 +124,11 @@ sending any op. `rev` is monotonic; a full `table` resets the baseline.
    run it in TD's textport:
 
    ```python
-   exec(open('/path/to/td/build_component.py').read())
+   exec(open('/path/to/td/build_component.py', encoding='utf-8').read())
    ```
+
+   (the explicit `encoding` matters — TD's `open()` defaults to ASCII and
+   the script contains UTF-8.)
 
    It builds `/project1/TableEditor` idempotently (safe to re-run).
 2. Set the comp's `Targetop` to any table DAT. The comp's panel (and

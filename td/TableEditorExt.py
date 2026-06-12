@@ -148,9 +148,11 @@ class TableEditorExt:
 		return t
 
 	def _editable(self, dat):
-		"""TD's own viewer rule: a DAT with inputs or a lock is view-only."""
+		"""TD's own viewer rule: a DAT with inputs or a lock is view-only.
+		The python attribute is OP.lock (verified live 2025.32820 —
+		.locked does not exist on tableDAT)."""
 		try:
-			return not dat.inputs and not dat.locked
+			return not dat.inputs and not getattr(dat, 'lock', False)
 		except Exception:
 			return False
 

@@ -7,14 +7,19 @@ always before pushes.
 
 ## Status — 2026-06-12
 
-Session 1: repo scaffolded from the TD-WEBgui-controller architecture and
-**M1 is done** — every core-grid feature verified in a real browser
-(preview harness, `?mock=1`, clean console). Nothing live-verified in TD
-yet: the running TD instance was unreachable over MCP during the session,
-so **M2 (TD bridge live) is next** — build the comp, verify the WS round
-trip, datexec diffing, structural-op APIs and the popup window. Lister
-feature set researched (docs.derivative.ca/Palette:lister) as the parity
-benchmark.
+Session 1: repo scaffolded from the TD-WEBgui-controller architecture,
+**M1 done** (every core-grid feature verified in a real browser,
+`?mock=1`, clean console) and **M2 core done** — the TD instance came
+back mid-session, the comp was built live in `td-controller-dev.6.toe`
+(/project1/TableEditor) and the full bidirectional loop verified:
+web edit → DAT, TD write → delta → page, structural insert over the
+real WS, read-only detection on a cooked DAT, popup window, 0.1% cook
+budget. Remaining M2: in-TD input hands-on (Vincent at the machine) and
+a 1k-row `_rewrite` cost check; then **M3 (structure & clipboard
+power)**. Lister feature set researched
+(docs.derivative.ca/Palette:lister) as the parity benchmark. Note: the
+test comp lives in the sibling repo's dev .toe — this repo has no .toe
+yet; rebuild anywhere with td/build_component.py.
 
 ## Design decisions (locked 2026-06-12)
 
@@ -71,22 +76,36 @@ benchmark.
 - [x] Mock bridge applies every op locally (`?mock=1`)
 - [x] Verified in a real browser via the preview harness, clean console
 
-### M2 — TD bridge live  ← NEXT
-- [ ] build_component.py runs clean in TD 2025.x; webserver serves the
-      page; WS round-trip verified (edit a cell → DAT changes → second
-      client updates)
-- [ ] datexec diff path verified: script-driven DAT writes appear in the
-      grid as deltas; shape changes rebroadcast full table
-- [ ] Self-echo suppression verified (no rebroadcast loop on client edits)
-- [ ] Editability detection verified on: free table DAT, locked DAT,
-      DAT with inputs (evaluate/select/merge outputs)
-- [ ] Structural ops verified live (insert/delete/move rows & cols);
-      confirm `_rewrite` cost is acceptable on a ~1k-row table, else
-      switch to native insert/delete APIs (verify they exist in 2025.x)
-- [ ] In-TD input: mouse forwarding (click/drag/wheel/right-click) and
-      keyboardin typing into cell editors
-- [ ] Openviewer window pops the panel (windowCOMP pars verified live)
-- [ ] Perf: ~0.0% cook budget idle, acceptable during edit bursts
+### M2 — TD bridge live  ✓ core verified 2026-06-12 (hands-on items remain)
+- [x] build_component.py runs clean in TD 2025.32820 (needs
+      `encoding='utf-8'` in the exec — TD's open() defaults to ASCII;
+      README + CLAUDE.md updated); webserver serves the page (200,
+      fresh js); webrender connects as a WS client on its own
+- [x] WS round-trip verified live: browser-side `Bridge.send(edit)` →
+      DAT cell changed in TD ('WS EDIT OK'), rev incremented, in-TD
+      webrender surface showed it (screenshot)
+- [x] datexec diff path verified: a Python write to the DAT broadcast a
+      delta (rev bump, snapshot updated) and rendered in the page
+- [x] Self-echo suppression verified: client edits bump rev exactly once,
+      no rebroadcast loop (snapshot pre-update pattern works)
+- [x] Editability detection verified live: free table DAT editable;
+      evaluateDAT-output target broadcast `editable:false` with rows
+      still visible. **Fixed: the python attr is `OP.lock` — `.locked`
+      doesn't exist on tableDAT** (AttributeError made everything
+      read-only)
+- [x] Structural ops verified live over the real WS (insertrows landed
+      exact values; delete/move share the same `_rewrite` path,
+      mock-verified)
+- [ ] `_rewrite` cost on a ~1k-row table (defer: the dev session was
+      already fps-starved; measure in a quiet session)
+- [ ] In-TD input hands-on: mouse forwarding (click/drag/wheel/
+      right-click) and keyboardin typing into cell editors — needs
+      Vincent at the machine
+- [x] Openviewer window verified (winopen/winclose pulses, `.isOpen`
+      round trip)
+- [x] Perf: comp holds 0.1% cook budget / 0.12ms cpu/s with a client
+      connected (the dev project's global fps dips are MCP overhead +
+      pre-existing project load, not the comp)
 
 ### M3 — Structure & clipboard power
 - [ ] Paste grows the table when the block exceeds bounds (insertrows/
@@ -130,6 +149,27 @@ benchmark.
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1c (M2 core: live bidirectional sync in TD)
+- TD MCP recovered mid-session; built /project1/TableEditor in
+  td-controller-dev.6.toe via build_component.py. First run hit
+  UnicodeDecodeError — TD's open() defaults to ASCII; exec with
+  `encoding='utf-8'` (README + CLAUDE.md updated).
+- **Bug fixed live**: `_editable` checked `dat.locked`, which doesn't
+  exist on tableDAT → AttributeError → everything read-only. The real
+  attr is `OP.lock`. Also recorded windowCOMP `.isOpen` (pulse pars
+  read False).
+- Verified live: webserver 200 + fresh js; webrender self-connected as
+  a WS client and survived reinitextensions (seeded clients); web→TD
+  edit landed in the DAT and rendered in-TD (screenshot); TD-side
+  Python write → diff → delta broadcast (rev bump, snapshot updated);
+  WS insertrows grew the demo table with exact values; evaluateDAT
+  target broadcast editable:false with rows visible; window
+  open/close round trip; comp at 0.1% budget / 0.12ms cpu/s.
+- Test edits cleaned up (demo_table restored, ro_test destroyed,
+  window closed). The host project's fps dips during the session were
+  MCP call overhead + pre-existing project load (448 pre-existing
+  warnings incl. uberGUI sync paths — not ours).
 
 ### 2026-06-12 — Session 1b (M1 done: core grid verified in-browser)
 - Full M1 test battery in the preview harness against `?mock=1`:

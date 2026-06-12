@@ -118,6 +118,13 @@ same traps. See that repo's CLAUDE.md for the war stories.
   seed `self.clients` from `webserverDAT.webSocketConnections` in
   `__init__`.
 - Custom par names: first char uppercase, rest lowercase ASCII only.
+- TD's `open()` defaults to **ASCII** — `exec(open(path).read())` on any
+  file with UTF-8 (em-dashes!) raises UnicodeDecodeError. Always
+  `open(path, encoding='utf-8')` (verified live 2025.32820).
+- The DAT lock python attribute is **`OP.lock`** — `.locked` does not
+  exist on tableDAT (AttributeError, verified live). windowCOMP open
+  state is **`.isOpen`** (never `par.winopen.eval()` — pulse pars read
+  False).
 - DAT row/col structural APIs vary by build — structural ops here go
   through `_rewrite()` (clear + appendRow from the edited snapshot), which
   is version-proof and atomic enough for one datexec fire. Verify any

@@ -204,7 +204,8 @@ const Grid = (() => {
         cell.dataset.c = c;
         cell.textContent = val(r, c);
         if (inAny(vr, c)) cell.classList.add('sel');
-        if (sel && vr === sel.ar && c === sel.ac) cell.classList.add('cur');
+        // row selections (gutter) read as rows — no active-cell outline
+        if (sel && !sel.rowMode && vr === sel.ar && c === sel.ac) cell.classList.add('cur');
         row.appendChild(cell);
       }
       frag.appendChild(row);
@@ -435,7 +436,7 @@ const Grid = (() => {
   function setAnchor(vr, c, extend) {
     vr = Math.max(0, Math.min(vr, viewRows.length - 1));
     c = Math.max(0, Math.min(c, numCols() - 1));
-    if (extend && sel) { sel.er = vr; sel.ec = c; }
+    if (extend && sel) { sel.er = vr; sel.ec = c; delete sel.rowMode; }
     else { sel = { ar: vr, ac: c, er: vr, ec: c }; extraSels = []; }
     scrollTo(vr, c);
     render();
@@ -510,6 +511,70 @@ const Grid = (() => {
     if (editInput) { editInput.remove(); editInput = null; }
   }
 
+  // Standard text editing for the in-TD cell editor. TD keystrokes arrive
+  // via executeJavaScript, so the input never sees native key events —
+  // caret and selection are driven through selectionStart/End here.
+  // External browsers never reach this path (their inputs are native).
+  function editorTDKey(k) {
+    const inp = editInput;
+    const v = inp.value;
+    const ctrl = !!k.ctrl;
+    const shift = !!k.shift;
+    const s = inp.selectionStart;
+    const e = inp.selectionEnd;
+    const back = inp.selectionDirection === 'backward';
+    const f = back ? s : e;            // the moving (focus) end
+    const wordL = (p) => {
+      while (p > 0 && !/\w/.test(v[p - 1])) p--;
+      while (p > 0 && /\w/.test(v[p - 1])) p--;
+      return p;
+    };
+    const wordR = (p) => {
+      while (p < v.length && !/\w/.test(v[p])) p++;
+      while (p < v.length && /\w/.test(v[p])) p++;
+      return p;
+    };
+    const caret = (p) => inp.setSelectionRange(p, p);
+    const moveTo = (p) => {            // shift extends from the anchor
+      p = Math.max(0, Math.min(p, v.length));
+      if (!shift) { caret(p); return; }
+      const anchor = back ? e : s;
+      inp.setSelectionRange(Math.min(anchor, p), Math.max(anchor, p),
+        p < anchor ? 'backward' : 'forward');
+    };
+    switch (k.key) {
+      case 'enter': commitEdit(shift ? -1 : 1, 0); return;
+      case 'tab': commitEdit(0, shift ? -1 : 1); return;
+      case 'esc': cancelEdit(); return;
+      case 'left':
+        if (ctrl) moveTo(wordL(f));
+        else if (!shift && s !== e) caret(s);   // collapse to selection start
+        else moveTo(f - 1);
+        return;
+      case 'right':
+        if (ctrl) moveTo(wordR(f));
+        else if (!shift && s !== e) caret(e);
+        else moveTo(f + 1);
+        return;
+      case 'home': case 'up': moveTo(0); return;
+      case 'end': case 'down': moveTo(v.length); return;
+      case 'backspace':
+        if (s !== e) inp.setRangeText('', s, e, 'end');
+        else if (s > 0) inp.setRangeText('', ctrl ? wordL(s) : s - 1, s, 'end');
+        return;
+      case 'delete':
+        if (s !== e) inp.setRangeText('', s, e, 'end');
+        else if (s < v.length) inp.setRangeText('', s, ctrl ? wordR(s) : s + 1, 'end');
+        return;
+      default: break;
+    }
+    if (ctrl && k.key === 'a') {       // select all editor text
+      inp.setSelectionRange(0, v.length);
+      return;
+    }
+    if (k.ch && !ctrl) inp.setRangeText(k.ch, s, e, 'end');
+  }
+
   function clearSelection() {
     if (!T || !T.editable) return;
     const edits = [];
@@ -525,6 +590,23 @@ const Grid = (() => {
       }
     }
     if (edits.length) localEdit(edits);
+  }
+
+  // ctrl/cmd+d: duplicate the selected rows — copies land directly below
+  // the last selected row (DAT coordinates, undoable as one structural op)
+  function duplicateRows() {
+    if (!T || !T.editable || !sel) return;
+    const rows = selDatRows();
+    if (!rows.length) return;
+    const at = Math.max(...rows) + 1;
+    const copies = rows.map((dr) => T.cells[dr].slice());
+    structOp(() => cbs.insertRows(at, copies));
+    if (viewReorderable()) {       // select the duplicated block
+      const start = at - headOff();
+      sel = { ar: start, ac: 0, er: start + rows.length - 1,
+        ec: numCols() - 1, rowMode: true };
+      extraSels = [];
+    }
   }
 
   // ---- clipboard --------------------------------------------------------------------
@@ -631,6 +713,9 @@ const Grid = (() => {
     } else if (meta && (k === 'y' || k === 'Y')) {
       redo();
       e.preventDefault();
+    } else if (meta && (k === 'd' || k === 'D')) {
+      duplicateRows();
+      e.preventDefault();
     }
     // NOTE: no type-to-replace — editing starts only via double-click,
     // Enter or F2, so stray typing (e.g. aimed at the filter) never
@@ -665,17 +750,7 @@ const Grid = (() => {
       ae.dispatchEvent(new Event('input', { bubbles: true }));
       return;
     }
-    if (editing && editInput) {
-      if (k.key === 'enter') { commitEdit(1, 0); return; }
-      if (k.key === 'tab') { commitEdit(0, 1); return; }
-      if (k.key === 'esc') { cancelEdit(); return; }
-      if (k.key === 'backspace') {
-        editInput.value = editInput.value.slice(0, -1);
-        return;
-      }
-      if (k.ch) editInput.value += k.ch;
-      return;
-    }
+    if (editing && editInput) { editorTDKey(k); return; }
     const key = TD_KEYS[k.key]
       || (k.key && k.key.length === 1 ? k.key : null)   // ctrl chords (z/y)
       || (k.ch && k.ch.length === 1 ? k.ch : null);
@@ -690,7 +765,19 @@ const Grid = (() => {
   // keyboardin ctrl+c/x -> ForwardKey -> __tdCopy -> TSV over the WS ->
   // ext sets ui.clipboard; ctrl+v -> ext reads ui.clipboard -> __tdPaste.
   window.__tdCopy = (cut) => {
-    if (editing || !sel) return;
+    if (editing && editInput) {
+      // copy/cut the editor's text selection (whole value if collapsed)
+      const s = editInput.selectionStart;
+      const e = editInput.selectionEnd;
+      const text = s === e ? editInput.value : editInput.value.slice(s, e);
+      if (text && cbs.clip) cbs.clip(text);
+      if (cut) {
+        if (s !== e) editInput.setRangeText('', s, e, 'end');
+        else editInput.value = '';
+      }
+      return;
+    }
+    if (!sel) return;
     const tsv = selectionTSV();
     if (tsv && cbs.clip) cbs.clip(tsv);
     if (cut) clearSelection();
@@ -698,7 +785,8 @@ const Grid = (() => {
 
   window.__tdPaste = (text) => {
     if (editing && editInput) {
-      editInput.value += String(text || '');
+      editInput.setRangeText(String(text || ''),
+        editInput.selectionStart, editInput.selectionEnd, 'end');
       return;
     }
     pasteTSV(String(text || ''));
@@ -902,6 +990,7 @@ const Grid = (() => {
           else rects.push({ ar: v, ac: 0, er: v, ec: numCols() - 1 });
         }
         sel = rects.pop() || null;
+        if (sel) sel.rowMode = true;
         extraSels = rects;
         render();
         return;
@@ -958,7 +1047,7 @@ const Grid = (() => {
         const selViews = rows.map((dr) => dr - headOff());
         const newStart = gap - selViews.filter((v) => v < gap).length;
         sel = { ar: newStart, ac: 0,
-          er: newStart + rows.length - 1, ec: numCols() - 1 };
+          er: newStart + rows.length - 1, ec: numCols() - 1, rowMode: true };
         extraSels = [];
         render();
       };
@@ -974,6 +1063,7 @@ const Grid = (() => {
     else { sel = { ar: vr, ac: 0, er: vr, ec: numCols() - 1 }; extraSels = []; }
     sel.ac = 0;
     sel.ec = numCols() - 1;
+    sel.rowMode = true;
     render();
   }
 

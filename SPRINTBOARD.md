@@ -23,7 +23,11 @@ Sessions 1j/1k closed the live-TD gaps: styles/themes apply live
 real WS, and in-TD modifier support landed (keyboardin-tracked
 `__tdMods` — shift/ctrl/cmd clicks and shift+wheel now work in the
 panel). Remaining M2: the 1k-row `_rewrite` cost measurement. Next
-sprint: **M3** (paste-grow, fill-down/right, multi-insert).
+sprint: **M3 — Vincent's hands-on punch list** (row-select outline,
+cell-editor text editing, ctrl+d duplicate rows, copy/paste round
+trip, TD-native undo blocks). Roadmap refactored 2026-06-12 from his
+second hands-on round; fill-down and the speculative Lister view
+tools moved to icebox.
 This repo has no .toe; rebuild anywhere with td/build_component.py
 (exec with encoding='utf-8').
 
@@ -114,50 +118,118 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
       connected (the dev project's global fps dips are MCP overhead +
       pre-existing project load, not the comp)
 
-### M3 — Structure & clipboard power
-- [ ] Paste grows the table when the block exceeds bounds (insertrows/
-      insertcols then edit, one undo-able burst)
-- [ ] Fill-down (ctrl+d) / fill-right (ctrl+r); drag-fill handle on the
-      selection (copy fill; smart series = icebox)
-- [ ] Multi-row/col insert (insert N at selection), duplicate rows
-- [x] Column drag-reorder (header drag, writes the DAT) — landed in
-      session 1f/1i with width-follows-column
-- [x] Undo/redo — client-side history landed 1i (cell-edit inverses +
-      structural snapshots via {t:replace}); TD-native undo blocks
-      stay icebox
+### M3 — Hands-on punch list (Vincent's 2026-06-12 feedback)  ✓ DONE 2026-06-12
+Selection & hotkeys:
+- [x] Gutter row select clears the active-cell outline (`sel.rowMode`
+      set by selectRow / gutter ctrl-toggle / reorder-follow; any
+      cell-anchored selection clears it)
+- [x] Cell editor standard text editing: in-TD `__tdKey` now routes
+      through `editorTDKey` — caret left/right, ctrl/cmd+arrow word
+      jumps, home/end/up/down, shift-extends with selection
+      direction, ctrl+a selects editor text, backspace/delete at the
+      caret (ctrl = word), chars insert at the caret, and in-TD
+      copy/cut/paste operate on the editor's text selection. Browser
+      inputs were already native
+- [x] ctrl/cmd+d duplicates the selected rows — copies insert
+      directly below the last selected row, duplicated block stays
+      selected (mock: 61→63, undo→61)
+- [x] Copy/paste round trip verified: gutter row copy → TSV (in-TD
+      ui.clipboard byte-identical to the DAT row), paste overwrites
+      rows/cells at the anchor, single-value fill unchanged
+
+TD-native undo:
+- [x] Python DAT writes are invisible to TD's undo (verified live) —
+      every ext write now registers a `ui.undo.addCallback` block:
+      cell edits store (r,c,old/new) lists, structural ops store
+      pre/post snapshots, header toggle stores the par values. The
+      restore callback is module-level + path-resolved (survives
+      reinit); restores land like script writes and broadcast via the
+      datexec diff. Verified live: cell edit, structural insert, and
+      header toggle all round-trip through ui.undo.undo()/redo() with
+      the page following
+- [x] Hardening found by the tests: structural ops now build from the
+      LIVE DAT (`_cellsCopy` reads the target), never the snapshot —
+      a same-frame op burst can leave the snapshot stale (datexec
+      coalesces no-net-change frames away), and writing a stale
+      snapshot back corrupted the table during testing
+
+### M4 — Structure ops & menus
+- [ ] Gutter right-click: "Insert clipboard rows here" — parses the
+      clipboard TSV and inserts whole rows at that index
+- [ ] Header right-click: "Rename column" (edits the header-row cell
+      in place — header row required) and "Select column contents"
+      (selects the column's data cells)
+- [ ] Sort push: topbar button + right-click menu item for "Apply
+      sort to DAT" (exists today only in the header context menu —
+      surface it; keep it disabled while filtered)
+- [ ] Inserted columns propagate to the target DAT — verify the
+      {t:insertcols} path end-to-end (Vincent reports new columns not
+      landing) and make `+ Col` / context inserts trustworthy
+- [ ] Paste grows the table when the block exceeds bounds
+      (insertrows/insertcols then edit, one undoable burst)
+- [ ] Multi-row/col insert (insert N at selection)
 - [ ] Bigger-paste stress test (10k cells)
 
-### M4 — Lister-parity view tools
-- [ ] Multi-column sort (shift-click adds a sort key)
-- [ ] Per-column filters + filter row mode; regex/exact/numeric operators
-- [ ] Column type hints (numeric/string/color) for sort + alignment;
-      color cells render swatches (Lister's color sourceDataMode)
-- [ ] Frozen columns (pin left N cols)
-- [ ] Find & replace across the table (with selection scope)
-- [ ] Row striping / divider options; compact density toggle
-- [ ] "Apply view to DAT" explicit op: writes the current sort order into
-      the table (with confirm)
+### M5 — Column formats & callbacks (Lister parity, re-scoped)
+- [ ] Lister-style callbacks DAT on the comp: onSelectRow /
+      onSelectCell / onEditCell / onRowsMoved etc., named to mirror
+      ListerUI where it makes sense — the scripting hook for using
+      the editor as a UI component
+- [ ] Per-column format views, starting with `checkbox`: empty or 0
+      renders unchecked, 1 renders checked; a single click immediately
+      toggles 0↔1 and writes the cell (empty becomes 1 — no edit mode,
+      no double-click). Format assignment via header right-click;
+      stored as view state (per-table spec when M6 lands). Numeric/
+      color-swatch formats follow the same mechanism later
 
-### M5 — Workflow & persistence
+### M6 — Workflow & persistence
 - [ ] ctrl.t workflow documented + helper: `ext.Open(path)` retargets and
       pops window; example keyboardin macro snippet for Vincent's setup
 - [ ] Follow-selection mode: editor retargets to the currently selected
       DAT in the network editor (poll `ui.panes` selection)
-- [ ] Per-table view specs in `specs/<opName>.json` (column widths, type
-      hints, frozen cols, header flag) — project-portable, hot-reload,
+- [ ] Per-table view specs in `specs/<opName>.json` (column widths,
+      column formats, header flag) — project-portable, hot-reload,
       localStorage stays the fallback
-- [ ] Multi-table tabs: recent targets as tabs along the top
 - [x] Theme/style pars on the comp (Style page → CSS vars, theme
       presets incl. drmbt) — landed 1h, menu-sync fix 1k
 
 ### Later / icebox
-- Apply-filter-to-DAT (destructive filter with confirm); smart series
-  drag-fill; CSV import/export buttons; per-cell expression evaluation
-  preview (show `eval()` like Lister's eval mode); topPath-style cell
+- Fill-down/fill-right + drag-fill handle (dropped from M3 in favor of
+  ctrl+d duplicate-rows); multi-column sort; per-column filter row;
+  frozen columns; find & replace; row striping / density toggle;
+  multi-table tabs; apply-filter-to-DAT (destructive, with confirm);
+  smart series drag-fill; CSV import/export buttons; per-cell
+  expression evaluation preview (Lister eval mode); topPath-style cell
   graphics; multi-client cursors/presence; CHOP/SOP table views
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1l (M3: TD-native undo, editor text editing, ctrl+d, rowMode)
+- Roadmap refactored from Vincent's second hands-on round, then M3
+  implemented and verified same session.
+- TD-native undo: `ui.undo.addCallback` blocks on every ext write
+  (`_applyEdits` / `_rewrite` / setheader) — python DAT writes are NOT
+  in TD's undo stack natively (verified). Module-level `_undoRestore`
+  resolves ops by path at call time so the queue's reference survives
+  reinitextensions. Verified live both directions incl. page sync.
+- In-TD cell editor text editing (`editorTDKey`): caret/word nav,
+  shift-selection with direction, ctrl+a, caret-aware insert/delete,
+  and editor-aware __tdCopy/__tdCut/__tdPaste. Mock-verified
+  step-by-step (selection states asserted after every key).
+- ctrl/cmd+d duplicate rows; gutter selections set `sel.rowMode` so no
+  cell outline renders; copy/paste round trip verified (in-TD
+  clipboard TSV byte-identical to the DAT row).
+- Hardening: `_cellsCopy` now reads the live DAT. The undo tests
+  caught a same-frame op+undo burst leaving the snapshot stale
+  (datexec coalesces zero-net-change frames) and `_insertRows`
+  writing the stale snapshot back over the table. TD is the source of
+  truth — structural ops must never trust the cache.
+- Testing notes: mock page caches js aggressively under python's
+  http.server (no cache headers) — `fetch(url, {cache:'reload'})`
+  then reload to pick up edits. Same-frame op bursts are an
+  artificial pattern; real ctrl+z arrives frames later and the
+  datexec path syncs correctly (verified frame-separated).
 
 ### 2026-06-12 — Session 1k (in-TD modifiers: shift/ctrl/cmd clicks, shift+wheel, drmbt menu)
 - Vincent reported the 1h/1i features dead in-TD (fine in browser):

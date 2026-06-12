@@ -16,6 +16,33 @@ import fnmatch
 import json
 
 
+def _undoRestore(isUndo, info):
+	"""ui.undo callback: restore a captured state. Python DAT writes are
+	invisible to TD's native undo (verified 2025.32820), so every ext
+	write registers one of these. Module-level + path-resolved so the
+	reference TD's undo queue holds survives extension reinit; the
+	restore lands like any external script write — the datexec diff
+	path broadcasts it to every client."""
+	o = op(info['path'])
+	if o is None:
+		return
+	data = info['undo'] if isUndo else info['redo']
+	try:
+		kind = info['kind']
+		if kind == 'edit':
+			for r, c, v in data:
+				if 0 <= r < o.numRows and 0 <= c < o.numCols:
+					o[r, c] = v
+		elif kind == 'table':
+			o.clear()
+			for row in data:
+				o.appendRow(row)
+		elif kind == 'par':
+			setattr(o.par, info['name'], data)
+	except Exception as e:
+		debug('TableEditor: TD undo restore failed: %s' % e)
+
+
 class TableEditorExt:
 
 	def __init__(self, ownerComp):
@@ -550,7 +577,13 @@ class TableEditorExt:
 			elif t == 'clip':
 				ui.clipboard = str(msg.get('text', ''))
 			elif t == 'setheader':
-				self.ownerComp.par.Headerrow = bool(msg.get('on'))
+				old = bool(self.ownerComp.par.Headerrow.eval())
+				new = bool(msg.get('on'))
+				if old != new:
+					self.ownerComp.par.Headerrow = new
+					self._registerUndo('Table header toggle',
+						{'kind': 'par', 'path': self.ownerComp.path,
+						 'name': 'Headerrow', 'undo': old, 'redo': new})
 				# parexec valuechange fires Refresh -> broadcast
 			elif t == 'settable':
 				self.ownerComp.par.Targetop = str(msg.get('path', ''))
@@ -564,20 +597,34 @@ class TableEditorExt:
 			return None
 		return dat
 
+	def _registerUndo(self, name, info):
+		"""One TD-native undo block per ext write (see _undoRestore)."""
+		try:
+			ui.undo.startBlock(name)
+			ui.undo.addCallback(_undoRestore, info)
+			ui.undo.endBlock()
+		except Exception as e:
+			debug('TableEditor: undo register failed: %s' % e)
+
 	def _applyEdits(self, edits):
 		dat = self._editTarget()
 		if dat is None:
 			return
 		applied = []
+		old = []
 		for e in edits:
 			r, c = int(e.get('r', -1)), int(e.get('c', -1))
 			v = str(e.get('v', ''))
 			if 0 <= r < dat.numRows and 0 <= c < dat.numCols:
+				old.append((r, c, dat[r, c].val))
 				dat[r, c] = v
 				if self._snap is not None:
 					self._snap[r][c] = v
 				applied.append({'r': r, 'c': c, 'v': v})
 		if applied:
+			self._registerUndo('Table edit: %s' % dat.name,
+				{'kind': 'edit', 'path': dat.path, 'undo': old,
+				 'redo': [(a['r'], a['c'], a['v']) for a in applied]})
 			self.rev += 1
 			self._broadcast({'t': 'delta', 'rev': self.rev, 'edits': applied})
 
@@ -590,7 +637,9 @@ class TableEditorExt:
 		dat = self._editTarget()
 		if dat is None:
 			return
+		pre = self._read(dat)
 		self._snap = cells
+		ok = True
 		try:
 			dat.clear()
 			for row in cells:
@@ -598,9 +647,21 @@ class TableEditorExt:
 		except Exception as e:
 			debug('TableEditor: rewrite failed: %s' % e)
 			self._snap = self._read(dat)
+			ok = False
+		if ok:
+			self._registerUndo('Table rewrite: %s' % dat.name,
+				{'kind': 'table', 'path': dat.path, 'undo': pre,
+				 'redo': [list(r) for r in cells]})
 		self._broadcastTable()
 
 	def _cellsCopy(self):
+		"""Working copy for structural ops — read the live DAT, not the
+		snapshot. TD is the source of truth: a stale snapshot (e.g. a
+		datexec fire coalesced away) must never be written back over
+		the table."""
+		dat = self._target()
+		if dat is not None:
+			return self._read(dat)
 		return [list(r) for r in (self._snap or [])]
 
 	def _numCols(self, cells):

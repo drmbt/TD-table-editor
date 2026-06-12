@@ -68,7 +68,20 @@ no type-to-replace (stray typing must never overwrite cells); `__tdKey`
 routes to whatever page input has focus (filter box) before grid nav.
 Undo/redo: ctrl+z / ctrl+shift+z / ctrl+y — client-side history; cell
 edits store inverse values, structural ops snapshot the table and
-restore via {t:replace} (single-editor assumption). Reorder keeps the
+restore via {t:replace} (single-editor assumption). Every ext write
+ALSO registers a TD-native undo block (`ui.undo.addCallback` — python
+DAT writes are invisible to TD's undo, verified live), so TD's own
+ctrl+z/redo restores the target DAT; the restore lands like any
+script write and flows back to clients via the datexec diff. The
+restore callback is module-level and path-resolved (survives
+reinitextensions). Structural ops build their working copy from the
+LIVE DAT, never the snapshot (a stale snapshot must not be written
+back). ctrl/cmd+d duplicates the selected rows (copies insert below
+the selection). The in-TD cell editor has full text editing —
+caret/word nav, shift-selection, ctrl+a, copy/cut/paste at the caret
+— via `__tdKey` routing (`editorTDKey`); browser inputs do this
+natively. Gutter row selections render without the active-cell
+outline (`sel.rowMode`). Reorder keeps the
 selection on the moved block. Shift+wheel scrolls horizontally in-TD
 (`__tdHWheel`; shift comes from the tracked `_mods` OR the panel
 `shift` channel — the panel channel alone is focus-gated and misses

@@ -7,12 +7,14 @@ always before pushes.
 
 ## Status — 2026-06-12
 
-Session 1: repo scaffolded from the TD-WEBgui-controller architecture.
-Web grid, bridge with mock mode, TD extension, webserver callbacks and
-idempotent builder written; nothing live-verified in TD yet (the running
-TD instance was unreachable over MCP during scaffolding — verify M2 items
-live in the next TD session). Lister feature set researched
-(docs.derivative.ca/Palette:lister) as the parity benchmark.
+Session 1: repo scaffolded from the TD-WEBgui-controller architecture and
+**M1 is done** — every core-grid feature verified in a real browser
+(preview harness, `?mock=1`, clean console). Nothing live-verified in TD
+yet: the running TD instance was unreachable over MCP during the session,
+so **M2 (TD bridge live) is next** — build the comp, verify the WS round
+trip, datexec diffing, structural-op APIs and the popup window. Lister
+feature set researched (docs.derivative.ca/Palette:lister) as the parity
+benchmark.
 
 ## Design decisions (locked 2026-06-12)
 
@@ -44,29 +46,32 @@ live in the next TD session). Lister feature set researched
 
 ## Roadmap
 
-### M1 — Core grid (mock mode, no TD required)  ← NEXT
-- [ ] Virtualized grid renders the mock table (header row, row gutter,
-      sticky column header, synced scroll)
-- [ ] Selection: click cell, drag range, shift-click extend, ctrl/cmd
-      toggle, row gutter selects rows, full keyboard nav (arrows, tab,
-      enter, home/end, page up/down, ctrl+arrow to edge, ctrl+a)
-- [ ] Editing: dblclick / Enter / type-to-replace; Esc reverts; Tab/Enter
+### M1 — Core grid (mock mode, no TD required)  ✓ DONE 2026-06-12
+- [x] Virtualized grid renders the mock table (header row, row gutter,
+      sticky column header, synced scroll; verified to row 60 of the
+      61×6 mock and back)
+- [x] Selection: click cell, drag range, shift-click extend, row gutter
+      selects rows, full keyboard nav (arrows, tab, enter, home/end,
+      page up/down, ctrl+arrow to edge, ctrl+a) — ctrl/cmd-click
+      multi-range deferred to M4 (single rect selection is the model
+      for now)
+- [x] Editing: dblclick / Enter / type-to-replace; Esc reverts; Tab/Enter
       commit and advance; Delete/Backspace clears selection
-- [ ] Clipboard: copy/cut/paste TSV blocks at the anchor cell; paste
-      clips to table bounds (grow-on-paste = M3)
-- [ ] Column resize: drag header edges, widths persist per table path
-      (localStorage)
-- [ ] Sort (header click, 3-state, numeric-aware) + filter (toolbar
-      input) — view-only
-- [ ] Context menu (in-page DOM, offscreen CEF has no native menus):
-      insert/delete rows & cols, clear cells
-- [ ] Row drag-reorder via the gutter (emits moverows; disabled while
+- [x] Clipboard: copy/cut/paste TSV blocks at the anchor cell; paste
+      clips to table bounds (grow-on-paste = M3); single value onto a
+      selection fills it
+- [x] Column resize: drag header edges, widths persist per table path
+      (localStorage; verified across reload)
+- [x] Sort (header click, 3-state, numeric-aware, stable, numbers before
+      strings) + filter (toolbar input) — view-only
+- [x] Context menu (in-page DOM): insert/delete rows & cols, clear
+      cells; sort items on the header menu; all ops disabled read-only
+- [x] Row drag-reorder via the gutter (emits moverows; disabled while
       sorted/filtered)
-- [ ] Mock bridge applies every op locally so all of the above is
-      testable in `?mock=1`
-- [ ] Verified in a real browser via the preview harness, clean console
+- [x] Mock bridge applies every op locally (`?mock=1`)
+- [x] Verified in a real browser via the preview harness, clean console
 
-### M2 — TD bridge live
+### M2 — TD bridge live  ← NEXT
 - [ ] build_component.py runs clean in TD 2025.x; webserver serves the
       page; WS round-trip verified (edit a cell → DAT changes → second
       client updates)
@@ -125,6 +130,30 @@ live in the next TD session). Lister feature set researched
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1b (M1 done: core grid verified in-browser)
+- Full M1 test battery in the preview harness against `?mock=1`:
+  selection (cell/range/row-gutter, header offset mapping view→DAT
+  confirmed: vr2 = DAT r3), editing (dblclick/Enter/type-to-replace/
+  Esc/commit-advance), keyboard nav incl. shift-extend and clear,
+  TSV copy/paste (block paste + single-value fill verified through
+  synthetic ClipboardEvents), numeric-aware 3-state sort, live filter
+  (61×6 → "16 shown"), context-menu insert/delete rows & cols, gutter
+  drag-reorder (dropline + moverows through the mock), column resize
+  with localStorage persistence across reload, header-row toggle
+  round-trip, read-only mode (editor blocked, every ctx op disabled),
+  virtual scroll to the bottom row. Zero console errors throughout.
+- Bugs found and fixed: (1) `#emptystate`'s `display:flex` overrode the
+  `hidden` attribute — overlay stayed up over live tables; added a
+  `[hidden]` rule. (2) The document-level context-menu closer ran on
+  the same bubbling pointerdown that opened the menu, closing it in
+  the same tick — moved the closer to the capture phase. (3) Wrapped
+  `setPointerCapture` in a try (inactive pointer ids throw and would
+  kill the drag handlers mid-gesture).
+- Preview-harness gotcha re-confirmed from the sibling repo: the
+  viewport can report 0×0 (rAF also throttles when hidden) until an
+  explicit `preview_resize` — body.clientHeight 0 faked "missing rows"
+  during sort/filter tests; the view logic was correct all along.
 
 ### 2026-06-12 — Session 1 (research + scaffold)
 - Researched the architecture donor (TD-WEBgui-controller CLAUDE.md /

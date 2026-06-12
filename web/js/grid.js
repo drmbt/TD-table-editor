@@ -564,6 +564,11 @@ const Grid = (() => {
 
   // ---- pointer interactions -------------------------------------------------------------------
 
+  // inactive pointer ids (synthetic events, racing releases) throw
+  function capture(elm, e) {
+    try { elm.setPointerCapture(e.pointerId); } catch (err) { /* ok */ }
+  }
+
   function cellFromEvent(e) {
     const rect = body.getBoundingClientRect();
     const x = e.clientX - rect.left + body.scrollLeft;
@@ -591,7 +596,7 @@ const Grid = (() => {
       }
       if (e.button !== 0) return;
       setAnchor(hit.vr, hit.c, e.shiftKey);
-      body.setPointerCapture(e.pointerId);
+      capture(body, e);
       const onMove = (ev) => {
         const h = cellFromEvent(ev);
         if (h && sel && (h.vr !== sel.er || h.c !== sel.ec)) {
@@ -669,7 +674,7 @@ const Grid = (() => {
         const to = gap < viewRows.length ? datR(gap) : T.cells.length;
         cbs.moveRows(rows, to);
       };
-      gutter.setPointerCapture(e.pointerId);
+      capture(gutter, e);
       gutter.addEventListener('pointermove', onMove);
       gutter.addEventListener('pointerup', onUp);
     });
@@ -706,7 +711,7 @@ const Grid = (() => {
           colhead.removeEventListener('pointerup', onUp);
           saveColW();
         };
-        colhead.setPointerCapture(e.pointerId);
+        capture(colhead, e);
         colhead.addEventListener('pointermove', onMove);
         colhead.addEventListener('pointerup', onUp);
         return;
@@ -783,9 +788,12 @@ const Grid = (() => {
     dropline = el.querySelector('#dropline');
     clip = el.querySelector('#clip');
     clip.addEventListener('keydown', (e) => { if (!editing) handleKey(e); });
+    // capture phase: runs BEFORE the handler that may open a menu on this
+    // same event — otherwise the opening pointerdown bubbles up here and
+    // closes the menu in the same tick
     document.addEventListener('pointerdown', (e) => {
       if (ctxEl && !ctxEl.contains(e.target)) closeCtx();
-    });
+    }, true);
     window.addEventListener('resize', requestRender);
     bindBody();
     bindGutter();

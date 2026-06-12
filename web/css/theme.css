@@ -291,6 +291,8 @@ body {
 
 /* ---- empty state --------------------------------------------------------------- */
 
+#emptystate[hidden] { display: none; }
+
 #emptystate {
   position: absolute;
   inset: 0;

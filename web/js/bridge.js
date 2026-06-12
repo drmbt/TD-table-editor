@@ -192,5 +192,5 @@ const Bridge = (() => {
     connect();
   }
 
-  return { init, send };
+  return { init, send, isMock: () => mock };
 })();

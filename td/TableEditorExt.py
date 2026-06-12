@@ -576,6 +576,11 @@ class TableEditorExt:
 				self.OnSelection(msg.get('sel'))
 			elif t == 'clip':
 				ui.clipboard = str(msg.get('text', ''))
+			elif t == 'getclip':
+				# clipboard pull: page menus (insert clipboard rows) ask
+				# for ui.clipboard — the OS clipboard, CEF-safe
+				self._sendTo(client, {'t': 'clip',
+									  'text': str(ui.clipboard or '')})
 			elif t == 'setheader':
 				old = bool(self.ownerComp.par.Headerrow.eval())
 				new = bool(msg.get('on'))

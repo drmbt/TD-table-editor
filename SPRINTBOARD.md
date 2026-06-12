@@ -106,8 +106,10 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
 - [x] Structural ops verified live over the real WS (insertrows landed
       exact values; delete/move share the same `_rewrite` path,
       mock-verified)
-- [ ] `_rewrite` cost on a ~1k-row table (defer: the dev session was
-      already fps-starved; measure in a quiet session)
+- [x] `_rewrite` cost on a ~1k-row table: 6.8ms for the full
+      structural path (live read + transform + clear/appendRow + undo
+      snapshot + broadcast) on 1000×6, 1.7ms for the TD-undo restore —
+      well inside one 60fps frame (measured 2026-06-12)
 - [x] In-TD input hands-on: mouse forwarding, keyboardin typing,
       modifier clicks, shift+wheel — Vincent's 1k round drove the
       fixes; modifier paths verified through the real keyboardin
@@ -153,22 +155,30 @@ TD-native undo:
       coalesces no-net-change frames away), and writing a stale
       snapshot back corrupted the table during testing
 
-### M4 — Structure ops & menus
-- [ ] Gutter right-click: "Insert clipboard rows here" — parses the
-      clipboard TSV and inserts whole rows at that index
-- [ ] Header right-click: "Rename column" (edits the header-row cell
-      in place — header row required) and "Select column contents"
-      (selects the column's data cells)
-- [ ] Sort push: topbar button + right-click menu item for "Apply
-      sort to DAT" (exists today only in the header context menu —
-      surface it; keep it disabled while filtered)
-- [ ] Inserted columns propagate to the target DAT — verify the
-      {t:insertcols} path end-to-end (Vincent reports new columns not
-      landing) and make `+ Col` / context inserts trustworthy
-- [ ] Paste grows the table when the block exceeds bounds
-      (insertrows/insertcols then edit, one undoable burst)
-- [ ] Multi-row/col insert (insert N at selection)
-- [ ] Bigger-paste stress test (10k cells)
+### M4 — Structure ops & menus  ✓ DONE 2026-06-12
+- [x] Gutter right-click: "Insert clipboard rows here" — new
+      `{t:getclip}` pull (ext replies `{t:clip}` with ui.clipboard;
+      mock falls back to navigator.clipboard); parses TSV, inserts at
+      the clicked index. Verified end-to-end in-TD: staged clipboard →
+      menu click → rows landed in the DAT → TD undo restored
+- [x] Header right-click: "Rename column" (inline input over the
+      hcell, Enter commits a {r:0,c} edit, Escape cancels — including
+      through the in-TD `__tdKey` esc path via a cancelable dispatched
+      keydown) and "Select column contents" (data cells, 60×1)
+- [x] Sort push: "Apply Sort" toolbar button (enabled via a
+      `sortApplicable` status flag) + "Apply sort to DAT" in the cell
+      context menu; both route through one `applySortToDAT()`
+- [x] Inserted columns propagate — verified the {t:insertcols} WS
+      path end-to-end (3→4 cols, TD undo restores); the earlier
+      report was almost certainly the stale-snapshot bug fixed in M3
+- [x] Paste grows the table when the block exceeds bounds — one
+      undoable {t:replace} burst, only when view order == DAT order
+      (sorted/filtered views clip as before); pasted block stays
+      selected (61×6 → 63×8 → undo)
+- [x] Multi-row insert already existed; column inserts now match
+      (insert N columns at an N-column selection)
+- [x] 10k-cell paste stress: 1000×10 grow-paste in 26ms, undo in
+      26ms (mock); TD-side 1k-row structural op 6.8ms
 
 ### M5 — Column formats & callbacks (Lister parity, re-scoped)
 - [ ] Lister-style callbacks DAT on the comp: onSelectRow /
@@ -204,6 +214,32 @@ TD-native undo:
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1m (M4: menus, clipboard pull, sort button, paste-grow + M2 perf)
+- Protocol: `{t:getclip}` client→TD; ext replies `{t:clip,text}` with
+  ui.clipboard (the OS clipboard — works in offscreen CEF and external
+  browsers alike; mock uses navigator.clipboard). README + CLAUDE.md
+  protocol docs updated (README also gained the missing {t:replace} /
+  {t:reload} entries).
+- Gutter menu: "Insert clipboard rows here" (TSV → insertrows at the
+  clicked row). Header menu: "Rename column" (inline #headedit input;
+  Enter commits {r:0,c}, Escape cancels — `__tdKey`'s generic-input esc
+  now dispatches a cancelable keydown so inputs can override the
+  filter's clear-on-esc default), "Select column contents".
+- "Apply Sort" toolbar button + cell-menu item, driven by a
+  `sortApplicable` flag on the status callback; all three entry points
+  share `applySortToDAT()`.
+- Paste-grow: a block exceeding bounds extends the table in one
+  undoable {t:replace} burst (gated on view order == DAT order).
+  Cell-menu column inserts are multi-N like row inserts.
+- Verified: mock (apply-sort cycle, rename commit/cancel/undo, select
+  column, paste-grow 61×6→63×8→undo, insert-2-columns, 10k-cell paste
+  26ms/undo 26ms, clean console) and live TD (insertcols WS path 3→4,
+  clipboard-pull insert landed clipA/clipB at the clicked index, TD
+  undo restored everything).
+- M2 leftover closed: 1k-row structural op = 6.8ms total (read +
+  rewrite + undo snapshot + broadcast), TD-undo restore 1.7ms —
+  `_rewrite` is a non-issue at this scale.
 
 ### 2026-06-12 — Session 1l (M3: TD-native undo, editor text editing, ctrl+d, rowMode)
 - Roadmap refactored from Vincent's second hands-on round, then M3

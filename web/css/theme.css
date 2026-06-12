@@ -251,7 +251,8 @@ body {
 
 /* ---- editing / drag feedback ---------------------------------------------- */
 
-#celledit {
+#celledit,
+#headedit {
   position: absolute;
   z-index: 5;
   background: var(--cell);
@@ -262,6 +263,11 @@ body {
   outline: none;
   user-select: text;
   -webkit-user-select: text;
+}
+
+#headedit {
+  background: var(--header-bg);
+  box-sizing: border-box;
 }
 
 #dropline {

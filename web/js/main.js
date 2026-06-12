@@ -33,6 +33,8 @@
     Grid.setStyle({ rowh: s.rowh });
   }
 
+  const clipWaiters = [];
+
   Grid.init($('grid'), {
     edit: (edits) => Bridge.send({ t: 'edit', edits }),
     insertRows: (at, rows) => Bridge.send({ t: 'insertrows', at, rows }),
@@ -45,9 +47,26 @@
     replace: (cells) => Bridge.send({ t: 'replace', cells }),
     select: (sel) => Bridge.send({ t: 'sel', sel }),
     clip: (text) => Bridge.send({ t: 'clip', text }),
+    // clipboard pull (gutter "Insert clipboard rows here"): connected
+    // pages ask TD for ui.clipboard ({t:getclip} -> {t:clip} reply) —
+    // it IS the OS clipboard, and works in offscreen CEF too; mock
+    // mode falls back to the browser clipboard API
+    getClip: (cb) => {
+      if (Bridge.isMock()) {
+        navigator.clipboard.readText().then(cb).catch(() => cb(''));
+        return;
+      }
+      clipWaiters.push(cb);
+      Bridge.send({ t: 'getclip' });
+      setTimeout(() => {           // never strand the callback
+        const i = clipWaiters.indexOf(cb);
+        if (i >= 0) { clipWaiters.splice(i, 1); cb(''); }
+      }, 1500);
+    },
     status: (s) => {
       dimsEl.textContent = s.dims || '';
       selEl.textContent = s.sel || '';
+      $('btn-applysort').disabled = !s.sortApplicable;
     },
   });
 
@@ -69,6 +88,9 @@
         Grid.setTable(msg);
       } else if (msg.t === 'delta') {
         Grid.applyEdits(msg.edits || []);
+      } else if (msg.t === 'clip') {
+        const w = clipWaiters.splice(0, clipWaiters.length);
+        w.forEach((cb) => cb(msg.text || ''));
       } else if (msg.t === 'error') {
         hintEl.textContent = msg.msg || 'error';
         setTimeout(() => { hintEl.textContent = ''; }, 4000);
@@ -93,6 +115,7 @@
 
   $('btn-addrow').addEventListener('click', () => Grid.appendRow());
   $('btn-addcol').addEventListener('click', () => Grid.appendCol());
+  $('btn-applysort').addEventListener('click', () => Grid.applySortToDAT());
 
   headerCb.addEventListener('change', () => {
     Bridge.send({ t: 'setheader', on: headerCb.checked });

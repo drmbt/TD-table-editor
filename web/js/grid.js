@@ -252,7 +252,8 @@ const Grid = (() => {
       selInfo = nr * nc > 1 ? `${nr}×${nc} selected`
         : `r${datR(sel.ar)} c${sel.ac}`;
     }
-    cbs.status({ dims, sel: selInfo });
+    cbs.status({ dims, sel: selInfo,
+      sortApplicable: !!(T && T.editable && sortDir !== 0 && !filterStr) });
     queueSelSend();
   }
 
@@ -648,9 +649,36 @@ const Grid = (() => {
         }
       }
     } else {
+      const maxW = Math.max(...rows.map((r) => r.length));
+      const needRows = s.r0 + rows.length - viewRows.length;
+      const needCols = s.c0 + maxW - numCols();
+      if ((needRows > 0 || needCols > 0) && viewReorderable()) {
+        // grow-on-paste: extend the table and write the block in ONE
+        // undoable replace burst (only when view order == DAT order;
+        // sorted/filtered views clip like before)
+        const ncols = numCols() + Math.max(0, needCols);
+        const grown = T.cells.map((r) => {
+          const row = r.slice();
+          while (row.length < ncols) row.push('');
+          return row;
+        });
+        while (grown.length < T.cells.length + Math.max(0, needRows)) {
+          grown.push(new Array(ncols).fill(''));
+        }
+        for (let i = 0; i < rows.length; i++) {
+          const dr = headOff() + s.r0 + i;
+          for (let j = 0; j < rows[i].length; j++) grown[dr][s.c0 + j] = rows[i][j];
+        }
+        structOp(() => cbs.replace(grown));
+        T.cells = grown.map((r) => r.slice());   // optimistic
+        sel.er = s.r0 + rows.length - 1;
+        sel.ec = s.c0 + maxW - 1;
+        renderAll();
+        return;
+      }
       for (let i = 0; i < rows.length; i++) {
         const vr = s.r0 + i;
-        if (vr >= viewRows.length) break;       // grow-on-paste is M3
+        if (vr >= viewRows.length) break;       // sorted/filtered: clip
         for (let j = 0; j < rows[i].length; j++) {
           const c = s.c0 + j;
           if (c >= numCols()) break;
@@ -740,7 +768,16 @@ const Grid = (() => {
     if (ae && ae !== clip && ae !== editInput
         && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
       if (k.key === 'backspace') ae.value = ae.value.slice(0, -1);
-      else if (k.key === 'esc') { ae.value = ''; ae.blur(); clip.focus({ preventScroll: true }); }
+      else if (k.key === 'esc') {
+        // inputs with their own Escape semantics (header rename) cancel
+        // via preventDefault; the default is the filter's clear-on-esc
+        const ev = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+        ae.dispatchEvent(ev);
+        if (ev.defaultPrevented) return;
+        ae.value = '';
+        ae.blur();
+        clip.focus({ preventScroll: true });
+      }
       else if (k.key === 'enter' || k.key === 'tab') {
         ae.blur();
         clip.focus({ preventScroll: true });
@@ -847,16 +884,38 @@ const Grid = (() => {
       { label: `Delete ${nr} row${nr > 1 ? 's' : ''}`, disabled: ro || !rows.length,
         fn: () => structOp(() => cbs.deleteRows(rows)) },
       '-',
-      { label: 'Insert column left', disabled: ro || !cols.length,
-        fn: () => structOp(() => cbs.insertCols(cols[0], 1)) },
-      { label: 'Insert column right', disabled: ro || !cols.length,
-        fn: () => structOp(() => cbs.insertCols(cols[cols.length - 1] + 1, 1)) },
+      { label: `Insert ${cols.length} column${cols.length > 1 ? 's' : ''} left`,
+        disabled: ro || !cols.length,
+        fn: () => structOp(() => cbs.insertCols(cols[0], cols.length)) },
+      { label: `Insert ${cols.length} column${cols.length > 1 ? 's' : ''} right`,
+        disabled: ro || !cols.length,
+        fn: () => structOp(() => cbs.insertCols(cols[cols.length - 1] + 1, cols.length)) },
       { label: `Delete ${cols.length} column${cols.length > 1 ? 's' : ''}`,
         disabled: ro || !cols.length || cols.length >= numCols(),
         fn: () => structOp(() => cbs.deleteCols(cols)) },
       '-',
       { label: 'Clear cells', disabled: ro || !s, fn: clearSelection },
+      { label: 'Apply sort to DAT', disabled: ro || sortDir === 0 || !!filterStr,
+        fn: applySortToDAT },
     ];
+  }
+
+  // gutter right-click: row menu + clipboard-row insertion at that index
+  function gutterCtxItems(vr) {
+    const ro = !T || !T.editable;
+    const items = cellCtxItems();
+    items.push('-', {
+      label: 'Insert clipboard rows here',
+      disabled: ro || !cbs.getClip,
+      fn: () => cbs.getClip((text) => {
+        const t = String(text || '');
+        if (!t.trim()) return;
+        const rows = t.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n')
+          .map((l) => l.split('\t'));
+        if (rows.length) structOp(() => cbs.insertRows(datR(vr), rows));
+      }),
+    });
+    return items;
   }
 
   // ---- pointer interactions -------------------------------------------------------------------
@@ -970,7 +1029,7 @@ const Grid = (() => {
         vr >= r.r0 && vr <= r.r1 && fullWidth(r));
       if (e.button === 2) {
         if (!inSel) selectRow(vr, false);
-        showCtx(e.clientX, e.clientY, cellCtxItems());
+        showCtx(e.clientX, e.clientY, gutterCtxItems(vr));
         return;
       }
       if (e.button !== 0) return;
@@ -1057,6 +1116,60 @@ const Grid = (() => {
     });
   }
 
+  // explicit "write the view's sort order into the DAT" op (header menu,
+  // cell menu, toolbar button) — view sort itself never mutates the table
+  function applySortToDAT() {
+    if (!T || !T.editable || sortDir === 0 || filterStr) return;
+    structOp(() => cbs.applySort(viewRows.slice()));
+    sortDir = 0;
+    sortCol = -1;       // the reordered table broadcast follows
+    renderAll();
+  }
+
+  function selectColumn(c) {
+    if (!viewRows.length) return;
+    sel = { ar: 0, ac: c, er: viewRows.length - 1, ec: c };
+    extraSels = [];
+    render();
+  }
+
+  // header right-click rename: inline input over the header cell, commits
+  // a plain {r:0,c} edit (header row is DAT row 0)
+  let headEdit = null;
+  function renameColumn(c) {
+    if (!T || !T.editable || !T.headerRow) return;
+    if (headEdit) headEdit.remove();
+    const inp = document.createElement('input');
+    inp.id = 'headedit';
+    inp.value = val(0, c);
+    inp.style.position = 'absolute';
+    inp.style.left = colLeft(c) + 'px';
+    inp.style.top = '0';
+    inp.style.width = eW[c] + 'px';
+    inp.style.height = '100%';
+    headEdit = inp;
+    let done = false;
+    const finish = (commit) => {
+      if (done) return;
+      done = true;
+      const v = inp.value;
+      inp.remove();
+      headEdit = null;
+      clip.focus({ preventScroll: true });
+      if (commit && v !== val(0, c)) localEdit([{ r: 0, c, v }]);
+    };
+    inp.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+    inp.addEventListener('blur', () => finish(true));
+    inp.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    colheadInner.appendChild(inp);
+    inp.focus();
+    inp.select();
+  }
+
   function selectRow(vr, extend) {
     if (!numCols()) return;
     if (extend && sel) { sel.er = vr; }
@@ -1108,11 +1221,12 @@ const Grid = (() => {
           { label: 'Clear sort', disabled: sortDir === 0,
             fn: () => { sortDir = 0; sortCol = -1; renderAll(); } },
           { label: 'Apply sort to DAT', disabled: ro || sortDir === 0 || !!filterStr,
-            fn: () => {
-              structOp(() => cbs.applySort(viewRows.slice()));
-              sortDir = 0;
-              sortCol = -1;       // the reordered table broadcast follows
-            } },
+            fn: applySortToDAT },
+          '-',
+          { label: 'Rename column', disabled: ro || !T || !T.headerRow,
+            fn: () => renameColumn(c) },
+          { label: 'Select column contents', disabled: !viewRows.length,
+            fn: () => selectColumn(c) },
           '-',
           { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1)) },
           { label: 'Insert column right', disabled: ro, fn: () => structOp(() => cbs.insertCols(c + 1, 1)) },
@@ -1254,5 +1368,5 @@ const Grid = (() => {
   }
 
   return { init, setTable, applyEdits, setFilter, dims, setStyle,
-    appendRow, appendCol };
+    appendRow, appendCol, applySortToDAT };
 })();

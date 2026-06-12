@@ -45,7 +45,8 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 `{t:reorder,rows:[perm]}` (Apply sort to DAT) `{t:replace,cells:[[...]]}`
 (whole-table rewrite — the client undo path for structural ops)
 `{t:sel,sel:{rows,c0,c1}}` (→ sel_rows/sel_cells output DATs)
-`{t:clip,text}` (→ ui.clipboard)
+`{t:clip,text}` (→ ui.clipboard) `{t:getclip}` (pull: ext replies
+`{t:clip,text}` with ui.clipboard — gutter clipboard-row insert)
 `{t:setheader,on}` `{t:settable,path}`;
 TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
 `{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:reload}`

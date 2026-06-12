@@ -130,10 +130,16 @@ Client → TD:
 {"t":"reorder",    "rows":[5,3,4]}         // full data-row permutation:
                                            // "Apply sort to DAT" writes the
                                            // view's order into the table
+{"t":"replace", "cells":[["a","b"],["c","d"]]}  // whole-table rewrite (the
+                                           // client undo path for structural
+                                           // ops, and grow-on-paste)
 {"t":"sel",  "sel":{"rows":[2,3], "c0":0, "c1":4}}  // selection (debounced);
                                            // mirrored into the comp's
                                            // sel_rows / sel_cells outputs
 {"t":"clip", "text":"a\tb"}                // in-TD copy: ext sets ui.clipboard
+{"t":"getclip"}                            // clipboard pull: ext replies with
+                                           // a {t:"clip"} carrying ui.clipboard
+                                           // (gutter "Insert clipboard rows")
 {"t":"setheader",  "on":true}              // first row = sticky header
 {"t":"settable",   "path":"/project1/table1"}  // retarget the editor
 ```
@@ -146,6 +152,8 @@ TD → client:
  "cells":[["name","dur"],["intro","30"]]}
 {"t":"delta", "rev":8, "edits":[{"r":1,"c":1,"v":"45"}]}
 {"t":"style", "style":{"accent":"#b45fff", "fontsize":13}}  // live restyle
+{"t":"clip", "text":"a\tb"}                // reply to {t:"getclip"}
+{"t":"reload"}                             // Reloadclients pulse: pages reload
 {"t":"error", "msg":"..."}
 ```
 

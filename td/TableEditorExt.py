@@ -134,13 +134,14 @@ class TableEditorExt:
 	# Font Family dropdown (the page applies these as CSS font-family).
 	# Every name verified to actually render in webrender CEF on macOS via
 	# canvas width-measurement (document.fonts.check lies — it passed
-	# Consolas/Roboto, which fall back to the default). Generics last.
+	# Consolas/Roboto, which fall back to the default). Alphabetical.
 	_FONTS = [
-		'Menlo', 'Monaco', 'PT Mono', 'Andale Mono', 'Courier New',
-		'Courier', 'monospace', 'system-ui', 'Helvetica Neue', 'Helvetica',
-		'Arial', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Avenir', 'Optima',
-		'Futura', 'Gill Sans', 'Georgia', 'Palatino', 'Baskerville',
-		'American Typewriter', 'Times New Roman', 'serif', 'sans-serif',
+		'American Typewriter', 'Andale Mono', 'Arial', 'Avenir',
+		'Baskerville', 'Courier', 'Courier New', 'Futura', 'Georgia',
+		'Gill Sans', 'Helvetica', 'Helvetica Neue', 'Menlo', 'Monaco',
+		'monospace', 'Optima', 'Palatino', 'PT Mono', 'sans-serif',
+		'serif', 'system-ui', 'Tahoma', 'Times New Roman',
+		'Trebuchet MS', 'Verdana',
 	]
 
 	_THEMES = {

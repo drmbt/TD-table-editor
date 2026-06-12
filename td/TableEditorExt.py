@@ -131,12 +131,16 @@ class TableEditorExt:
 		('Fontsize', 'Font Size', 10, 20, 13),
 	)
 
-	# Font Family dropdown (the page applies these as CSS font-family)
+	# Font Family dropdown (the page applies these as CSS font-family).
+	# Every name verified to actually render in webrender CEF on macOS via
+	# canvas width-measurement (document.fonts.check lies — it passed
+	# Consolas/Roboto, which fall back to the default). Generics last.
 	_FONTS = [
-		'JetBrains Mono', 'SF Mono', 'Menlo', 'Monaco', 'Consolas',
-		'Courier New', 'monospace', 'Inter', 'Roboto', 'Helvetica Neue',
-		'Arial', 'Verdana', 'Tahoma', 'system-ui', 'sans-serif',
-		'Georgia', 'Times New Roman', 'serif',
+		'Menlo', 'Monaco', 'PT Mono', 'Andale Mono', 'Courier New',
+		'Courier', 'monospace', 'system-ui', 'Helvetica Neue', 'Helvetica',
+		'Arial', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Avenir', 'Optima',
+		'Futura', 'Gill Sans', 'Georgia', 'Palatino', 'Baskerville',
+		'American Typewriter', 'Times New Roman', 'serif', 'sans-serif',
 	]
 
 	_THEMES = {
@@ -220,12 +224,12 @@ class TableEditorExt:
 		"\tif not keyInfo.state:\n"
 		"\t\treturn\n"
 		"\tcmd = bool(getattr(keyInfo, 'cmd', False))\n"
-		"\tctrl = bool(getattr(keyInfo, 'ctrl', False) or cmd)\n"
+		"\tctrl = bool(getattr(keyInfo, 'ctrl', False))\n"
+		"\talt = bool(getattr(keyInfo, 'alt', False))\n"
 		"\t# chord flags are authoritative — recover from missed keyups\n"
-		"\text.SyncMods(bool(keyInfo.shift),\n"
-		"\t\tbool(getattr(keyInfo, 'ctrl', False)),\n"
-		"\t\tbool(getattr(keyInfo, 'alt', False)), cmd)\n"
-		"\text.ForwardKey(keyInfo.key, keyInfo.character, keyInfo.shift, ctrl)\n"
+		"\text.SyncMods(bool(keyInfo.shift), ctrl, alt, cmd)\n"
+		"\text.ForwardKey(keyInfo.key, keyInfo.character, keyInfo.shift,\n"
+		"\t\tctrl, alt, cmd)\n"
 		"\treturn\n")
 
 	def _ensureSetup(self):
@@ -555,7 +559,8 @@ class TableEditorExt:
 	# CEF 132). A DOM-mutating executeJavaScript with forced layout revives
 	# the renderer, so we kick after every broadcast.
 
-	_KICK_JS = ("document.documentElement.style.setProperty('--td-kick','%d');"
+	_KICK_JS = ("window.__inTD=true;"
+				"document.documentElement.style.setProperty('--td-kick','%d');"
 				"void document.documentElement.offsetHeight;")
 
 	def _kickWebrender(self):
@@ -616,6 +621,11 @@ class TableEditorExt:
 									  'text': str(ui.clipboard or '')})
 			elif t == 'refresh':
 				self.Refresh()
+			elif t == 'cursor':
+				# offscreen CEF can't change the OS cursor — the page
+				# reports the CSS cursor under the pointer and we map it
+				# onto the container's cursor par
+				self._setCursor(str(msg.get('name', '')))
 			elif t == 'openpars':
 				# toolbar gear: pop the comp's parameter dialog in TD
 				self.ownerComp.openParameters()
@@ -828,6 +838,23 @@ class TableEditorExt:
 
 	# ---- in-TD input forwarding (webrenderTOP has no native key injection) ------
 
+	# CSS cursor name -> containerCOMP cursor par menu value
+	_CURSOR_MAP = {
+		'default': 'pointer', 'auto': 'pointer', 'pointer': 'linkselect',
+		'text': 'ibeam', 'cell': 'cross', 'crosshair': 'cross',
+		'col-resize': 'arrowLeftRight', 'ew-resize': 'arrowLeftRight',
+		'row-resize': 'arrowUpDown', 'ns-resize': 'arrowUpDown',
+		'move': 'arrowAll', 'grab': 'arrowAll', 'grabbing': 'arrowAll',
+	}
+
+	def _setCursor(self, name):
+		want = self._CURSOR_MAP.get(name, 'pointer')
+		try:
+			if self.ownerComp.par.cursor.eval() != want:
+				self.ownerComp.par.cursor = want
+		except Exception:
+			pass
+
 	_WHEEL_SCALE = 1  # panel wheel notches map 1:1 to interactMouse wheel
 
 	def OnModifierKey(self, key, state):
@@ -881,15 +908,18 @@ class TableEditorExt:
 		except Exception:
 			pass
 
-	def ForwardKey(self, key, character, shift, ctrl=False):
+	def ForwardKey(self, key, character, shift, ctrl=False, alt=False,
+				   cmd=False):
 		"""Inject a TD keystroke into the page (webrenderTOP has no native
-		keyboard injection). Ctrl+c/x/v route the clipboard through TD —
-		offscreen CEF has no OS clipboard access, ui.clipboard does."""
+		keyboard injection). Ctrl/cmd+c/x/v route the clipboard through TD —
+		offscreen CEF has no OS clipboard access, ui.clipboard does. ctrl,
+		alt and cmd travel separately so the page can keep mac semantics
+		(alt=word jump, cmd=line start/end) apart from ctrl chords."""
 		web = self.ownerComp.op('webrender1')
 		if web is None:
 			return
 		try:
-			if ctrl and str(key) in ('c', 'x', 'v'):
+			if (ctrl or cmd) and str(key) in ('c', 'x', 'v'):
 				if key == 'v':
 					text = ui.clipboard or ''
 					web.executeJavaScript(
@@ -903,7 +933,9 @@ class TableEditorExt:
 			payload = json.dumps({'key': str(key or ''),
 								  'ch': str(character or ''),
 								  'shift': bool(shift),
-								  'ctrl': bool(ctrl)})
+								  'ctrl': bool(ctrl),
+								  'alt': bool(alt),
+								  'cmd': bool(cmd)})
 			web.executeJavaScript(
 				'window.__tdKey && window.__tdKey(%s)' % payload)
 		except Exception:

@@ -146,6 +146,10 @@ Client → TD:
                                            // table and rebroadcast
 {"t":"openpars"}                           // toolbar ⚙: open the comp's
                                            // parameter dialog in TD
+{"t":"cursor", "name":"col-resize"}        // in-TD only: CSS cursor under
+                                           // the pointer -> container COMP
+                                           // cursor par (offscreen CEF
+                                           // can't change the OS cursor)
 ```
 
 TD → client:

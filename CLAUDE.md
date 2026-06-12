@@ -48,7 +48,10 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 `{t:clip,text}` (→ ui.clipboard) `{t:getclip}` (pull: ext replies
 `{t:clip,text}` with ui.clipboard — gutter clipboard-row insert)
 `{t:setheader,on}` `{t:settable,path}` `{t:refresh}` (toolbar ⟳ →
-ext.Refresh) `{t:openpars}` (toolbar ⚙ → comp.openParameters());
+ext.Refresh) `{t:openpars}` (toolbar ⚙ → comp.openParameters())
+`{t:cursor,name}` (in-TD only, gated on `window.__inTD` from the kick
+JS: CSS cursor under the pointer → `_CURSOR_MAP` → container `cursor`
+par — offscreen CEF can't change the OS cursor);
 TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
 `{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:reload}`
 (Reloadclients pulse — stale-page recovery) `{t:error,msg}`.

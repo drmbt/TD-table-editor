@@ -215,6 +215,35 @@ TD-native undo:
 
 ## Changelog
 
+### 2026-06-12 — Session 1o (RFE round 4: in-TD cursors, mac text-editing semantics, real fonts)
+- **In-TD cursor changes work now.** webrenderTOP renders offscreen, so
+  CSS cursors never reach the OS — but containerCOMPs have a `cursor`
+  par with a full menu. New `{t:cursor,name}` op: the page watches the
+  CSS cursor under the pointer (pointermove, sends on change only,
+  gated on `window.__inTD` which the ext's kick JS sets so external
+  browsers never drive the panel) and the ext maps it via `_CURSOR_MAP`
+  (col-resize→arrowLeftRight, cell→cross, pointer→linkselect,
+  text→ibeam, grab→arrowAll…). Verified live: hovering a resize
+  handle/cell/button flipped the par to arrowLeftRight/cross/
+  linkselect.
+- **Mac text-editing semantics in all in-TD inputs.** keyboardin now
+  passes ctrl/alt/cmd separately (ForwardKey signature extended);
+  alt+arrows = word jump, cmd+arrows = text start/end, cmd+backspace =
+  delete-to-start, ctrl keeps win-style word jump. The caret engine
+  was factored into `textKey(k, inp)` and now ALSO drives the header
+  rename input and the filter via __tdKey's generic-input branch —
+  rename previously only appended/backspaced (type-over-selection
+  appended, arrows/delete dead). Grid chords (ctrl+z/d/a) still fire
+  on either ctrl or cmd.
+- **Font dropdown now contains only fonts that really render.**
+  document.fonts.check lies in CEF (passed Consolas/Roboto, which fall
+  back) — canvas width-measurement against the generic defaults gave
+  the true list; _FONTS is now 22 verified macOS families + generics.
+  Menlo screenshot-verified in the webrender.
+- Mock-verified: alt/cmd word & line nav in the cell editor (repeats
+  while held), cmd+a + type-over replaces in both cell editor and
+  rename input, delete clears selections, esc cancel intact.
+
 ### 2026-06-12 — Session 1n (RFE round 3: rename fix, toolbar buttons, action log, font menu)
 - **Rename-column bug found and fixed**: the context-menu item handler
   never called preventDefault, so a real (trusted) mousedown's default

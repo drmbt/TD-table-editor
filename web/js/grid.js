@@ -523,15 +523,20 @@ const Grid = (() => {
     if (editInput) { editInput.remove(); editInput = null; }
   }
 
-  // Standard text editing for the in-TD cell editor. TD keystrokes arrive
-  // via executeJavaScript, so the input never sees native key events —
-  // caret and selection are driven through selectionStart/End here.
+  // Shared caret/selection engine for in-TD text inputs (cell editor,
+  // header rename, filter). TD keystrokes arrive via executeJavaScript,
+  // so inputs never see native key events — caret and selection are
+  // driven through selectionStart/End here. Mac semantics: alt = word
+  // jump, cmd = text start/end, ctrl = word jump (win convention).
   // External browsers never reach this path (their inputs are native).
-  function editorTDKey(k) {
-    const inp = editInput;
+  // Returns true when the key was handled.
+  function textKey(k, inp) {
     const v = inp.value;
     const ctrl = !!k.ctrl;
+    const alt = !!k.alt;
+    const cmd = !!k.cmd;
     const shift = !!k.shift;
+    const word = ctrl || alt;
     const s = inp.selectionStart;
     const e = inp.selectionEnd;
     const back = inp.selectionDirection === 'backward';
@@ -555,36 +560,47 @@ const Grid = (() => {
         p < anchor ? 'backward' : 'forward');
     };
     switch (k.key) {
-      case 'enter': commitEdit(shift ? -1 : 1, 0); return;
-      case 'tab': commitEdit(0, shift ? -1 : 1); return;
-      case 'esc': cancelEdit(); return;
       case 'left':
-        if (ctrl) moveTo(wordL(f));
+        if (cmd) moveTo(0);
+        else if (word) moveTo(wordL(f));
         else if (!shift && s !== e) caret(s);   // collapse to selection start
         else moveTo(f - 1);
-        return;
+        return true;
       case 'right':
-        if (ctrl) moveTo(wordR(f));
+        if (cmd) moveTo(v.length);
+        else if (word) moveTo(wordR(f));
         else if (!shift && s !== e) caret(e);
         else moveTo(f + 1);
-        return;
-      case 'home': case 'up': moveTo(0); return;
-      case 'end': case 'down': moveTo(v.length); return;
+        return true;
+      case 'home': case 'up': moveTo(0); return true;
+      case 'end': case 'down': moveTo(v.length); return true;
       case 'backspace':
         if (s !== e) inp.setRangeText('', s, e, 'end');
-        else if (s > 0) inp.setRangeText('', ctrl ? wordL(s) : s - 1, s, 'end');
-        return;
+        else if (cmd) inp.setRangeText('', 0, s, 'end');   // mac cmd+bksp
+        else if (s > 0) inp.setRangeText('', word ? wordL(s) : s - 1, s, 'end');
+        return true;
       case 'delete':
         if (s !== e) inp.setRangeText('', s, e, 'end');
-        else if (s < v.length) inp.setRangeText('', s, ctrl ? wordR(s) : s + 1, 'end');
-        return;
+        else if (s < v.length) inp.setRangeText('', s, word ? wordR(s) : s + 1, 'end');
+        return true;
       default: break;
     }
-    if (ctrl && k.key === 'a') {       // select all editor text
+    if ((ctrl || cmd) && k.key === 'a') {       // select all
       inp.setSelectionRange(0, v.length);
-      return;
+      return true;
     }
-    if (k.ch && !ctrl) inp.setRangeText(k.ch, s, e, 'end');
+    if (k.ch && !ctrl && !cmd) {
+      inp.setRangeText(k.ch, s, e, 'end');      // insert replaces selection
+      return true;
+    }
+    return false;
+  }
+
+  function editorTDKey(k) {
+    if (k.key === 'enter') { commitEdit(k.shift ? -1 : 1, 0); return; }
+    if (k.key === 'tab') { commitEdit(0, k.shift ? -1 : 1); return; }
+    if (k.key === 'esc') { cancelEdit(); return; }
+    textKey(k, editInput);
   }
 
   function clearSelection() {
@@ -784,8 +800,7 @@ const Grid = (() => {
     const ae = document.activeElement;
     if (ae && ae !== clip && ae !== editInput
         && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
-      if (k.key === 'backspace') ae.value = ae.value.slice(0, -1);
-      else if (k.key === 'esc') {
+      if (k.key === 'esc') {
         // inputs with their own Escape semantics (header rename) cancel
         // via preventDefault; the default is the filter's clear-on-esc
         const ev = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
@@ -794,14 +809,24 @@ const Grid = (() => {
         ae.value = '';
         ae.blur();
         clip.focus({ preventScroll: true });
-      }
-      else if (k.key === 'enter' || k.key === 'tab') {
-        ae.blur();
-        clip.focus({ preventScroll: true });
+        ae.dispatchEvent(new Event('input', { bubbles: true }));
         return;
-      } else if (k.ch && k.ch.length === 1 && !k.ctrl) ae.value += k.ch;
-      else return;
-      ae.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (k.key === 'enter' || k.key === 'tab') {
+        const ev = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+        ae.dispatchEvent(ev);
+        if (!ev.defaultPrevented) {
+          ae.blur();
+          clip.focus({ preventScroll: true });
+        }
+        return;
+      }
+      // full text editing (caret nav, selection, word jumps) — same
+      // engine as the cell editor; input event only on value change
+      const before = ae.value;
+      if (textKey(k, ae) && ae.value !== before) {
+        ae.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       return;
     }
     if (editing && editInput) { editorTDKey(k); return; }
@@ -810,7 +835,7 @@ const Grid = (() => {
       || (k.ch && k.ch.length === 1 ? k.ch : null);
     if (key === null) return;
     handleKey({
-      key, shiftKey: !!k.shift, ctrlKey: !!k.ctrl, metaKey: false,
+      key, shiftKey: !!k.shift, ctrlKey: !!(k.ctrl || k.cmd), metaKey: false,
       preventDefault: () => {},
     });
   };
@@ -845,6 +870,19 @@ const Grid = (() => {
     }
     pasteTSV(String(text || ''));
   };
+
+  // in-TD cursor pipe: offscreen CEF can't change the OS cursor, so the
+  // page reports the CSS cursor under the pointer and the ext maps it
+  // onto the container COMP's cursor par. Gated on __inTD (set by the
+  // ext's webrender kick) so external browsers never drive the panel.
+  let lastCursor = '';
+  document.addEventListener('pointermove', (e) => {
+    if (!window.__inTD || !cbs.cursor || !(e.target instanceof Element)) return;
+    const cur = getComputedStyle(e.target).cursor || 'default';
+    if (cur === lastCursor) return;
+    lastCursor = cur;
+    cbs.cursor(cur);
+  });
 
   // shift+wheel in-TD: interactMouse wheel is vertical-only, so the ext
   // injects horizontal scrolls here (external browsers do it natively)

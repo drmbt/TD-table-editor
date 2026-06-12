@@ -83,6 +83,7 @@
       $('btn-applysort').disabled = !s.sortApplicable;
     },
     log: logAction,
+    cursor: (name) => Bridge.send({ t: 'cursor', name }),
   });
 
   Bridge.init({

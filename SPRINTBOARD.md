@@ -212,14 +212,15 @@ or selected row (Vincent's media-asset workflow).
       flashes, logs, fires {t:button,r,c} → onButtonClick(info) with
       row/col and the FULL row values so a callback can
       op(info['cells'][n]).DoThing() on a hidden-column target. No
-      selection change, no edit mode, works read-only.
-      Mock-verified; live onButtonClick payload check pending TD
-      relaunch (see changelog 1q)
+      selection change, no edit mode, works read-only. Verified live
+      end-to-end after relaunch: in-TD page click → footer log →
+      {t:button} → onButtonClick with the full row
 - [x] `thumb` column format: cell value is a TOP path or an image
       file path; webserver_callbacks gains /thumb?src=… (TOP →
       saveByteArray png, disk image → bytes, max-age=2); cells render
-      the image at row height, text fallback on load error
-      (mock-verified). Live endpoint check pending TD relaunch
+      the image at row height, text fallback on load error. Endpoint
+      verified live after relaunch: TOP path → 200 image/png (real
+      900×429 render), disk jpg → 200 image/jpeg, bad src → 404
 
 ### M7 — Workflow & persistence
 - [ ] ctrl.t workflow documented + helper: `ext.Open(path)` retargets and
@@ -268,8 +269,12 @@ or selected row (Vincent's media-asset workflow).
     new endpoint in webserver_callbacks (op path → isTOP →
     saveByteArray('.png'); disk path → image bytes by extension;
     max-age=2); text fallback on img error.
-- Pending on relaunch: live onButtonClick payload + /thumb endpoint
-  checks, one reinitextensions + Reloadclients.
+- Post-relaunch verification (same day): reinit + reload clean;
+  /thumb returned a real TOP render (200 image/png, 900×429), a disk
+  jpg (200 image/jpeg) and 404 on a bad src — probed with curl from
+  OUTSIDE this time; onButtonClick fired through the real WS dispatch
+  AND from a synthetic click in the in-TD page, both delivering
+  {row, col, cells:<full row>}.
 
 ### 2026-06-12 — Session 1p (M5: checkbox column format + Lister-style callbacks)
 - Per-column format views (`colFmt`, localStorage `tdtable:<path>:fmt`,

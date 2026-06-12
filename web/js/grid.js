@@ -32,6 +32,9 @@ const Grid = (() => {
   let T = null;            // {path,name,editable,headerRow,cells}
   let colW = [];           // base widths (auto-sized or user-resized, persisted)
   let colFmt = {};         // per-column format views ({c:'checkbox'}, persisted)
+  let colHide = {};        // hidden columns ({c:true}, persisted) — view only:
+                           // the DATA stays in the DAT; sel_rows and callbacks
+                           // carry full rows (hidden target/meta columns)
   let eW = [];             // effective widths: base + leftover into fillIdx
   let fillIdx = -1;        // content-richest column absorbs spare viewport width
   let sortCol = -1;
@@ -145,6 +148,7 @@ const Grid = (() => {
     if (!T) return;
     const frag = document.createDocumentFragment();
     for (let c = 0; c < numCols(); c++) {
+      if (colHide[c]) continue;
       const h = document.createElement('div');
       h.className = 'hcell';
       h.style.width = eW[c] + 'px';
@@ -198,6 +202,7 @@ const Grid = (() => {
       row.className = 'vrow' + (vr % 2 ? ' alt' : '');
       row.style.top = (vr * ROWH) + 'px';
       for (let c = 0; c < numCols(); c++) {
+        if (colHide[c]) continue;
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.style.width = eW[c] + 'px';
@@ -206,6 +211,23 @@ const Grid = (() => {
         if (colFmt[c] === 'checkbox') {
           cell.textContent = checkboxOn(val(r, c)) ? '☑' : '☐';
           cell.classList.add('fmt-checkbox');
+        } else if (colFmt[c] === 'button') {
+          const b = document.createElement('div');
+          b.className = 'cellbtn';
+          b.textContent = val(r, c);
+          cell.classList.add('fmt-button');
+          cell.appendChild(b);
+        } else if (colFmt[c] === 'thumb' && val(r, c)) {
+          const img = document.createElement('img');
+          img.className = 'cellthumb';
+          img.src = 'thumb?src=' + encodeURIComponent(val(r, c));
+          img.style.height = (ROWH - 4) + 'px';
+          // no endpoint (mock) or bad path: fall back to the raw text
+          img.addEventListener('error', () => {
+            cell.textContent = val(r, c);
+          }, { once: true });
+          cell.classList.add('fmt-thumb');
+          cell.appendChild(img);
         } else {
           cell.textContent = val(r, c);
         }
@@ -319,10 +341,13 @@ const Grid = (() => {
   function updateEff() {
     eW = colW.slice();
     if (!eW.length || !body) return;
+    for (let c = 0; c < eW.length; c++) { if (colHide[c]) eW[c] = 0; }
     const leftover = body.clientWidth - eW.reduce((a, b) => a + b, 0);
     if (leftover > 0) {
-      const f = fillIdx >= 0 && fillIdx < eW.length ? fillIdx : eW.length - 1;
-      eW[f] += leftover;
+      let f = fillIdx >= 0 && fillIdx < eW.length && !colHide[fillIdx]
+        ? fillIdx : -1;
+      if (f < 0) f = nextVisCol(eW.length - 1, -1);
+      if (f >= 0) eW[f] += leftover;
     }
   }
 
@@ -332,28 +357,49 @@ const Grid = (() => {
     } catch (e) { /* private mode etc. */ }
   }
 
-  // per-column format views ({colIndex: 'checkbox'}), persisted like
-  // widths; view state only — cells still hold plain text
+  // per-column format views ({colIndex: 'checkbox'}) and hidden columns,
+  // persisted like widths; view state only — cells still hold plain text
   function loadFmt() {
     colFmt = {};
+    colHide = {};
     try {
       colFmt = JSON.parse(localStorage.getItem('tdtable:' + T.path + ':fmt')) || {};
+    } catch (e) { /* fresh */ }
+    try {
+      colHide = JSON.parse(localStorage.getItem('tdtable:' + T.path + ':hide')) || {};
     } catch (e) { /* fresh */ }
   }
 
   function saveFmt() {
     try {
       localStorage.setItem('tdtable:' + T.path + ':fmt', JSON.stringify(colFmt));
+      localStorage.setItem('tdtable:' + T.path + ':hide', JSON.stringify(colHide));
     } catch (e) { /* private mode etc. */ }
   }
 
-  // formats follow their column through a drag-reorder (same as widths)
+  // formats/visibility follow their column through a drag-reorder
   function moveFmt(c, gap) {
-    const arr = Array.from({ length: numCols() }, (_, i) => colFmt[i]);
-    const f = arr.splice(c, 1)[0];
-    arr.splice(gap - (c < gap ? 1 : 0), 0, f);
-    colFmt = {};
-    arr.forEach((v, i) => { if (v) colFmt[i] = v; });
+    const remap = (m) => {
+      const arr = Array.from({ length: numCols() }, (_, i) => m[i]);
+      const f = arr.splice(c, 1)[0];
+      arr.splice(gap - (c < gap ? 1 : 0), 0, f);
+      const out = {};
+      arr.forEach((v, i) => { if (v) out[i] = v; });
+      return out;
+    };
+    colFmt = remap(colFmt);
+    colHide = remap(colHide);
+  }
+
+  const hiddenCount = () =>
+    Object.keys(colHide).filter((c) => colHide[c] && c < numCols()).length;
+
+  // next visible column from c moving dir (skips hidden); -1 if none
+  function nextVisCol(c, dir) {
+    for (let i = c; i >= 0 && i < numCols(); i += dir) {
+      if (!colHide[i]) return i;
+    }
+    return -1;
   }
 
   const checkboxOn = (v) => {
@@ -368,6 +414,20 @@ const Grid = (() => {
     const on = checkboxOn(val(r, c));
     localEdit([{ r, c, v: on ? '0' : '1' }],
       `toggle r${r} c${c} ${on ? 'off' : 'on'}`);
+  }
+
+  // button-format cells: flash pressed, fire {t:button} -> onButtonClick
+  // (the callback gets the FULL row incl. hidden columns — the Lister
+  // pattern: visible label, hidden op-path target)
+  function pressButton(vr, c, targetEl) {
+    const r = datR(vr);
+    const btn = targetEl && targetEl.closest ? targetEl.closest('.cellbtn') : null;
+    if (btn) {
+      btn.classList.add('pressed');
+      setTimeout(() => btn.classList.remove('pressed'), 120);
+    }
+    log(`button r${r} c${c} "${val(r, c)}"`);
+    if (cbs.button) cbs.button(r, c);
   }
 
   function setTable(t) {
@@ -491,6 +551,11 @@ const Grid = (() => {
   function setAnchor(vr, c, extend) {
     vr = Math.max(0, Math.min(vr, viewRows.length - 1));
     c = Math.max(0, Math.min(c, numCols() - 1));
+    if (colHide[c]) {                 // never anchor on a hidden column
+      const t = nextVisCol(c, -1);
+      c = t >= 0 ? t : nextVisCol(c, 1);
+      if (c < 0) return;
+    }
     if (extend && sel) { sel.er = vr; sel.ec = c; delete sel.rowMode; }
     else { sel = { ar: vr, ac: c, er: vr, ec: c }; extraSels = []; }
     scrollTo(vr, c);
@@ -511,10 +576,15 @@ const Grid = (() => {
   }
 
   function move(dr, dc, extend) {
-    if (!sel) { setAnchor(0, 0, false); return; }
+    if (!sel) { setAnchor(0, nextVisCol(0, 1), false); return; }
     const fr = extend ? sel.er : sel.ar;
     const fc = extend ? sel.ec : sel.ac;
-    setAnchor(fr + dr, fc + dc, extend);
+    let tc = fc;
+    if (dc) {                       // horizontal steps skip hidden columns
+      const t = nextVisCol(fc + dc, dc > 0 ? 1 : -1);
+      if (t >= 0) tc = t;
+    }
+    setAnchor(fr + dr, tc, extend);
   }
 
   // ---- editing -------------------------------------------------------------------
@@ -655,6 +725,7 @@ const Grid = (() => {
     for (const s of allRects()) {
       for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
         for (let c = s.c0; c <= s.c1; c++) {
+          if (colHide[c]) continue;        // never blind-clear hidden data
           const key = datR(vr) + ':' + c;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -695,14 +766,16 @@ const Grid = (() => {
     // copy the active rect only (multi-area block copy is ill-defined).
     if (rects.length > 1 && rects.every(fullWidth)) {
       return selDatRows()
-        .map((dr) => T.cells[dr].join('\t'))
+        .map((dr) => T.cells[dr].filter((_, c) => !colHide[c]).join('\t'))
         .join('\n');
     }
     const s = normSel() || rects[rects.length - 1];
     const lines = [];
     for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
       const cells = [];
-      for (let c = s.c0; c <= s.c1; c++) cells.push(val(datR(vr), c));
+      for (let c = s.c0; c <= s.c1; c++) {
+        if (!colHide[c]) cells.push(val(datR(vr), c));
+      }
       lines.push(cells.join('\t'));
     }
     return lines.join('\n');
@@ -720,6 +793,7 @@ const Grid = (() => {
         && (s.r1 > s.r0 || s.c1 > s.c0)) {
       for (let vr = s.r0; vr <= s.r1; vr++) {
         for (let c = s.c0; c <= s.c1; c++) {
+          if (colHide[c]) continue;
           edits.push({ r: datR(vr), c, v: rows[0][0] });
         }
       }
@@ -727,7 +801,10 @@ const Grid = (() => {
       const maxW = Math.max(...rows.map((r) => r.length));
       const needRows = s.r0 + rows.length - viewRows.length;
       const needCols = s.c0 + maxW - numCols();
-      if ((needRows > 0 || needCols > 0) && viewReorderable()) {
+      // grow only without hidden cols — growing a view that doesn't show
+      // every column is ambiguous; hidden setups clip like sorted views
+      if ((needRows > 0 || needCols > 0) && viewReorderable()
+          && !hiddenCount()) {
         // grow-on-paste: extend the table and write the block in ONE
         // undoable replace burst (only when view order == DAT order;
         // sorted/filtered views clip like before)
@@ -752,13 +829,18 @@ const Grid = (() => {
         renderAll();
         return;
       }
+      // paste walks VISIBLE columns from the anchor — hidden target/meta
+      // columns are never silently overwritten by a block paste
+      const visCols = [];
+      for (let c = s.c0; c < numCols(); c++) {
+        if (!colHide[c]) visCols.push(c);
+      }
       for (let i = 0; i < rows.length; i++) {
         const vr = s.r0 + i;
         if (vr >= viewRows.length) break;       // sorted/filtered: clip
         for (let j = 0; j < rows[i].length; j++) {
-          const c = s.c0 + j;
-          if (c >= numCols()) break;
-          edits.push({ r: datR(vr), c, v: rows[i][j] });
+          if (j >= visCols.length) break;
+          edits.push({ r: datR(vr), c: visCols[j], v: rows[i][j] });
         }
       }
       sel.er = Math.min(s.r0 + rows.length - 1, viewRows.length - 1);
@@ -1094,6 +1176,12 @@ const Grid = (() => {
         toggleCheckbox(hit.vr, hit.c);
         return;
       }
+      if (colFmt[hit.c] === 'button' && !mods.shift && !multi) {
+        // button cells fire the onButtonClick callback — no selection
+        // change, no edit; works on read-only tables (buttons read)
+        pressButton(hit.vr, hit.c, e.target);
+        return;
+      }
       const now = Date.now();
       if (!mods.shift && !multi && hit.vr === lastPress.vr && hit.c === lastPress.c
           && now - lastPress.t < 400) {
@@ -1131,7 +1219,8 @@ const Grid = (() => {
 
     body.addEventListener('dblclick', (e) => {
       const hit = cellFromEvent(e);
-      if (hit && colFmt[hit.c] === 'checkbox') return;   // click toggles instead
+      // checkbox toggles and buttons fire on single click — no editor
+      if (hit && (colFmt[hit.c] === 'checkbox' || colFmt[hit.c] === 'button')) return;
       if (hit) startEdit(hit.vr, hit.c);
     });
 
@@ -1360,12 +1449,29 @@ const Grid = (() => {
             fn: () => renameColumn(c) },
           { label: 'Select column contents', disabled: !viewRows.length,
             fn: () => selectColumn(c) },
-          { label: (colFmt[c] === 'checkbox' ? '✓ ' : '') + 'Checkbox format',
+          '-',
+          ...['text', 'checkbox', 'button', 'thumb'].map((f) => ({
+            label: ((colFmt[c] || 'text') === f ? '✓ ' : ' ')
+              + 'Format: ' + (f === 'thumb' ? 'thumbnail' : f),
             fn: () => {
-              if (colFmt[c] === 'checkbox') delete colFmt[c];
-              else colFmt[c] = 'checkbox';
+              if (f === 'text') delete colFmt[c]; else colFmt[c] = f;
               saveFmt();
               render();
+            },
+          })),
+          '-',
+          { label: 'Hide column', disabled: hiddenCount() >= numCols() - 1,
+            fn: () => {
+              colHide[c] = true;
+              saveFmt();
+              renderAll();
+            } },
+          { label: `Show ${hiddenCount()} hidden column${hiddenCount() > 1 ? 's' : ''}`,
+            disabled: !hiddenCount(),
+            fn: () => {
+              colHide = {};
+              saveFmt();
+              renderAll();
             } },
           '-',
           { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1), 'insert column') },

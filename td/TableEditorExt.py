@@ -247,6 +247,12 @@ class TableEditorExt:
 		'#     c0, c1 (column span of the active rect)."""\n'
 		'#     pass\n'
 		'\n'
+		'# def onButtonClick(info):\n'
+		'#     """A button-format cell was clicked. info: row, col,\n'
+		'#     cells (the FULL row, hidden columns included) — e.g.\n'
+		'#     op(info[\'cells\'][3]).par.play.pulse()."""\n'
+		'#     pass\n'
+		'\n'
 		'# def onEdit(info):\n'
 		'#     """Cells written. info: edits [{r,c,v}], prev [(r,c,old)]."""\n'
 		'#     pass\n'
@@ -661,6 +667,15 @@ class TableEditorExt:
 									  'text': str(ui.clipboard or '')})
 			elif t == 'refresh':
 				self.Refresh()
+			elif t == 'button':
+				# button-format cell clicked: hand the callback the full
+				# row (incl. hidden columns) so it can reach its target
+				r = int(msg.get('r', -1))
+				cells = (list(self._snap[r]) if self._snap is not None
+						 and 0 <= r < len(self._snap) else [])
+				self._callback('onButtonClick',
+							   {'row': r, 'col': int(msg.get('c', -1)),
+								'cells': cells})
 			elif t == 'cursor':
 				# offscreen CEF can't change the OS cursor — the page
 				# reports the CSS cursor under the pointer and we map it

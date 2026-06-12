@@ -150,6 +150,9 @@ Client → TD:
                                            // the pointer -> container COMP
                                            // cursor par (offscreen CEF
                                            // can't change the OS cursor)
+{"t":"button", "r":3, "c":1}               // button-format cell clicked ->
+                                           // onButtonClick callback with the
+                                           // full row (hidden cols included)
 ```
 
 TD → client:

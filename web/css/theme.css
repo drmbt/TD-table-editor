@@ -130,6 +130,39 @@ body {
   -webkit-user-select: none;
 }
 
+.cell.fmt-button {
+  padding: 1px 3px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cellbtn {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--header-bg);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellbtn:hover { border-color: var(--accent); }
+.cellbtn.pressed { background: var(--hl); color: var(--text); }
+
+.cell.fmt-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.cellthumb { display: block; max-width: 100%; object-fit: contain; }
+
 #toolbar button {
   background: var(--header-bg);
   border: 1px solid var(--grid-line);

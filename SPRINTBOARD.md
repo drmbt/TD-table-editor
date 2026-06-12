@@ -196,7 +196,32 @@ TD-native undo:
       (click flipped the DAT 0→1, TD-undoable). Numeric/color-swatch
       formats ride the same colFmt mechanism later.
 
-### M6 — Workflow & persistence
+### M6 — UI-component formats (Lister-as-UI parity)
+The table-as-UI pattern: visible label/button columns + hidden
+target/meta columns; callbacks read the hidden cells of the clicked
+or selected row (Vincent's media-asset workflow).
+- [x] Hidden columns: header right-click "Hide column" + "Show N
+      hidden columns"; view state (`tdtable:<path>:hide`, follows
+      column drag-reorder), zero-width render; keyboard nav, copy,
+      paste and clear all skip hidden cols (paste walks VISIBLE
+      columns — hidden targets are never blind-overwritten;
+      grow-on-paste disabled while columns are hidden); the DATA
+      stays in the DAT — sel_rows / callbacks carry full rows
+- [x] `button` column format (header menu is now a format radio:
+      text/checkbox/button/thumbnail): cells render as buttons; click
+      flashes, logs, fires {t:button,r,c} → onButtonClick(info) with
+      row/col and the FULL row values so a callback can
+      op(info['cells'][n]).DoThing() on a hidden-column target. No
+      selection change, no edit mode, works read-only.
+      Mock-verified; live onButtonClick payload check pending TD
+      relaunch (see changelog 1q)
+- [x] `thumb` column format: cell value is a TOP path or an image
+      file path; webserver_callbacks gains /thumb?src=… (TOP →
+      saveByteArray png, disk image → bytes, max-age=2); cells render
+      the image at row height, text fallback on load error
+      (mock-verified). Live endpoint check pending TD relaunch
+
+### M7 — Workflow & persistence
 - [ ] ctrl.t workflow documented + helper: `ext.Open(path)` retargets and
       pops window; example keyboardin macro snippet for Vincent's setup
 - [ ] Follow-selection mode: editor retargets to the currently selected
@@ -218,6 +243,33 @@ TD-native undo:
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1q (M6: hidden columns, button format, thumbnails — and a TD freeze)
+- **INCIDENT: TD froze mid-session, force-quit required.** Cause: I ran
+  `urllib.request.urlopen('http://127.0.0.1:9981/...')` from TD python
+  to probe the webserver — the request handler runs on the main
+  thread, which the call was blocking. Deadlock, no timeout. Rule
+  added to CLAUDE.md: never HTTP-request TD's own webserver from TD
+  python; probe with curl from outside. Nothing is lost on relaunch:
+  all comp code is file-synced from the repo and the .toe was saved.
+- M6 built and mock-verified while TD was down:
+  - Hidden columns (`colHide`, localStorage `:hide`): zero-width
+    layout with fill-column fixup, head/cells skip rendering, arrows/
+    tab skip hidden, setAnchor never lands on hidden, copy skips,
+    paste maps clipboard columns onto VISIBLE columns only (hidden
+    targets can't be blind-overwritten), clear skips, grow-on-paste
+    disabled while hiding. Header menu: Hide column / Show N hidden.
+  - Header menu format radio (text/checkbox/button/thumbnail).
+  - `button` format: .cellbtn renders in-cell, click flashes +
+    logs + sends {t:button,r,c}; ext hands onButtonClick the full
+    row from the snapshot. Selection untouched, dblclick suppressed,
+    allowed on read-only tables.
+  - `thumb` format: cells load /thumb?src=<TOP path or image file>;
+    new endpoint in webserver_callbacks (op path → isTOP →
+    saveByteArray('.png'); disk path → image bytes by extension;
+    max-age=2); text fallback on img error.
+- Pending on relaunch: live onButtonClick payload + /thumb endpoint
+  checks, one reinitextensions + Reloadclients.
 
 ### 2026-06-12 — Session 1p (M5: checkbox column format + Lister-style callbacks)
 - Per-column format views (`colFmt`, localStorage `tdtable:<path>:fmt`,

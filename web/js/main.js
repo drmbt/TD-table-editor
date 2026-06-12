@@ -84,6 +84,7 @@
     },
     log: logAction,
     cursor: (name) => Bridge.send({ t: 'cursor', name }),
+    button: (r, c) => Bridge.send({ t: 'button', r, c }),
   });
 
   Bridge.init({

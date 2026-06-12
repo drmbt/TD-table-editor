@@ -11,7 +11,10 @@
   <header id="toolbar">
     <span id="targetname" title="target table DAT">&mdash;</span>
     <span id="robadge" hidden>READ-ONLY</span>
-    <input id="filter" type="text" placeholder="filter rows&hellip;" spellcheck="false">
+    <span id="filterwrap">
+      <input id="filter" type="text" placeholder="filter rows&hellip;" spellcheck="false">
+      <button id="btn-clearfilter" title="clear filter" hidden>&times;</button>
+    </span>
     <button id="btn-addrow" title="append a row">+ Row</button>
     <button id="btn-addcol" title="append a column">+ Col</button>
     <button id="btn-applysort" title="write the current sort order into the DAT" disabled>Apply Sort</button>
@@ -19,12 +22,15 @@
       <input type="checkbox" id="headerrow"> header row
     </label>
     <span class="flexspacer"></span>
+    <button id="btn-refresh" class="iconbtn" title="re-pull the target table (Refresh pulse)">&#10227;</button>
+    <button id="btn-openpars" class="iconbtn" title="open the TableEditor component parameters">&#9881;</button>
     <span id="conn" class="conn down" title="connection">&#9679;</span>
   </header>
   <div id="grid"></div>
   <footer id="statusbar">
     <span id="dims"></span>
     <span id="selinfo"></span>
+    <span id="oplog" hidden></span>
     <span class="flexspacer"></span>
     <span id="hint"></span>
   </footer>

@@ -47,13 +47,18 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 `{t:sel,sel:{rows,c0,c1}}` (→ sel_rows/sel_cells output DATs)
 `{t:clip,text}` (→ ui.clipboard) `{t:getclip}` (pull: ext replies
 `{t:clip,text}` with ui.clipboard — gutter clipboard-row insert)
-`{t:setheader,on}` `{t:settable,path}`;
+`{t:setheader,on}` `{t:settable,path}` `{t:refresh}` (toolbar ⟳ →
+ext.Refresh) `{t:openpars}` (toolbar ⚙ → comp.openParameters());
 TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
 `{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:reload}`
 (Reloadclients pulse — stale-page recovery) `{t:error,msg}`.
 Style dict (comp Style page → CSS vars): bg panel cell cellalt grid
 header gutter text textdim accent highlight font fontsize rowh —
-selection/hover tints derive from `highlight` (--hl), not accent.
+selection/hover tints derive from `highlight` (--hl), not accent —
+plus `showlog` (comp par Displaylog → footer action log; not styling
+but rides the same coalesced broadcast). Fontfamily is a Str par with
+menuNames synced from `_FONTS` every init (strmenu-style dropdown,
+free text still allowed).
 Themes: custom/dark/drmbt/light/synthwave (the ext re-syncs the Theme
 par's menu items on every init — themes added later must land on
 existing comps). Selection model: one ACTIVE rect + extra rects

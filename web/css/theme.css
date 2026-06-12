@@ -93,6 +93,35 @@ body {
 }
 #filter:focus { border-color: var(--accent); }
 
+#filterwrap { position: relative; display: inline-flex; align-items: center; }
+#btn-clearfilter {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font: var(--font);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 3px;
+  cursor: pointer;
+}
+#btn-clearfilter:hover { color: var(--accent); }
+
+/* lit when the view sort is "dirty" (applicable but not yet written) */
+#btn-applysort:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#toolbar .iconbtn {
+  padding: 3px 7px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#oplog { color: var(--accent); }
+
 #toolbar button {
   background: var(--header-bg);
   border: 1px solid var(--grid-line);

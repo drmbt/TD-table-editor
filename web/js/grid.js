@@ -392,17 +392,24 @@ const Grid = (() => {
     histPos = history.length;
   }
 
-  function localEdit(edits) {
+  // footer action log (main.js shows it when the comp's Displaylog is on)
+  function log(msg) {
+    if (cbs.log && msg) cbs.log(msg);
+  }
+
+  function localEdit(edits, label) {
     const prev = edits.map((e) => ({ r: e.r, c: e.c, v: val(e.r, e.c) }));
     pushHist({ kind: 'edit', undo: prev,
       redo: edits.map((e) => ({ r: e.r, c: e.c, v: e.v })) });
+    log(label || `edit ${edits.length} cell${edits.length > 1 ? 's' : ''}`);
     applyAndSend(edits);
   }
 
   // wrap a structural send with a pre-op snapshot for undo
-  function structOp(send) {
+  function structOp(send, label) {
     if (!T || !T.editable) return;
     pushHist({ kind: 'table', pre: T.cells.map((row) => row.slice()) });
+    log(label);
     send();
   }
 
@@ -416,6 +423,7 @@ const Grid = (() => {
     if (!T || !T.editable || histPos === 0) return;
     histPos--;
     const h = history[histPos];
+    log('undo');
     if (h.kind === 'edit') {
       applyAndSend(h.undo.map((e) => ({ ...e })));
     } else {
@@ -428,6 +436,7 @@ const Grid = (() => {
     if (!T || !T.editable || histPos >= history.length) return;
     const h = history[histPos];
     histPos++;
+    log('redo');
     if (h.kind === 'edit') applyAndSend(h.redo.map((e) => ({ ...e })));
     else if (h.post) restoreCells(h.post);
   }
@@ -495,7 +504,9 @@ const Grid = (() => {
     const { vr, c } = editing;
     const v = editInput.value;
     removeEditInput();
-    if (v !== val(datR(vr), c)) localEdit([{ r: datR(vr), c, v }]);
+    if (v !== val(datR(vr), c)) {
+      localEdit([{ r: datR(vr), c, v }], `edit r${datR(vr)} c${c}`);
+    }
     clip.focus({ preventScroll: true });
     if (dr || dc) move(dr, dc, false);
   }
@@ -590,7 +601,9 @@ const Grid = (() => {
         }
       }
     }
-    if (edits.length) localEdit(edits);
+    if (edits.length) {
+      localEdit(edits, `clear ${edits.length} cell${edits.length > 1 ? 's' : ''}`);
+    }
   }
 
   // ctrl/cmd+d: duplicate the selected rows — copies land directly below
@@ -601,7 +614,8 @@ const Grid = (() => {
     if (!rows.length) return;
     const at = Math.max(...rows) + 1;
     const copies = rows.map((dr) => T.cells[dr].slice());
-    structOp(() => cbs.insertRows(at, copies));
+    structOp(() => cbs.insertRows(at, copies),
+      `duplicate ${rows.length} row${rows.length > 1 ? 's' : ''}`);
     if (viewReorderable()) {       // select the duplicated block
       const start = at - headOff();
       sel = { ar: start, ac: 0, er: start + rows.length - 1,
@@ -669,7 +683,8 @@ const Grid = (() => {
           const dr = headOff() + s.r0 + i;
           for (let j = 0; j < rows[i].length; j++) grown[dr][s.c0 + j] = rows[i][j];
         }
-        structOp(() => cbs.replace(grown));
+        structOp(() => cbs.replace(grown),
+          `paste-grow to ${grown.length}×${ncols}`);
         T.cells = grown.map((r) => r.slice());   // optimistic
         sel.er = s.r0 + rows.length - 1;
         sel.ec = s.c0 + maxW - 1;
@@ -688,7 +703,9 @@ const Grid = (() => {
       sel.er = Math.min(s.r0 + rows.length - 1, viewRows.length - 1);
       sel.ec = Math.min(s.c0 + rows[0].length - 1, numCols() - 1);
     }
-    if (edits.length) localEdit(edits);
+    if (edits.length) {
+      localEdit(edits, `paste ${edits.length} cell${edits.length > 1 ? 's' : ''}`);
+    }
   }
 
   // ---- keyboard ------------------------------------------------------------------------
@@ -856,7 +873,12 @@ const Grid = (() => {
       d.className = 'item' + (it.disabled ? ' disabled' : '');
       d.textContent = it.label;
       d.addEventListener('pointerdown', (e) => {
+        // preventDefault: a trusted mousedown's default action moves
+        // focus to body AFTER this handler — that blurred (and killed)
+        // the rename input the instant it opened
+        e.preventDefault();
         e.stopPropagation();
+        if (it.disabled) return;
         closeCtx();
         it.fn();
       });
@@ -876,23 +898,30 @@ const Grid = (() => {
     const ro = !T || !T.editable;
     const at = rows.length ? rows[0] : T.cells.length;
     const blank = (n) => Array.from({ length: n }, () => []);
+    const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
     return [
-      { label: `Insert ${nr} row${nr > 1 ? 's' : ''} above`, disabled: ro,
-        fn: () => structOp(() => cbs.insertRows(at, blank(nr))) },
-      { label: `Insert ${nr} row${nr > 1 ? 's' : ''} below`, disabled: ro,
-        fn: () => structOp(() => cbs.insertRows((rows.length ? rows[rows.length - 1] : T.cells.length - 1) + 1, blank(nr))) },
-      { label: `Delete ${nr} row${nr > 1 ? 's' : ''}`, disabled: ro || !rows.length,
-        fn: () => structOp(() => cbs.deleteRows(rows)) },
+      { label: `Insert ${plural(nr, 'row')} above`, disabled: ro,
+        fn: () => structOp(() => cbs.insertRows(at, blank(nr)),
+          `insert ${plural(nr, 'row')}`) },
+      { label: `Insert ${plural(nr, 'row')} below`, disabled: ro,
+        fn: () => structOp(() => cbs.insertRows((rows.length ? rows[rows.length - 1] : T.cells.length - 1) + 1, blank(nr)),
+          `insert ${plural(nr, 'row')}`) },
+      { label: `Delete ${plural(nr, 'row')}`, disabled: ro || !rows.length,
+        fn: () => structOp(() => cbs.deleteRows(rows),
+          `delete ${plural(nr, 'row')}`) },
       '-',
-      { label: `Insert ${cols.length} column${cols.length > 1 ? 's' : ''} left`,
+      { label: `Insert ${plural(cols.length, 'column')} left`,
         disabled: ro || !cols.length,
-        fn: () => structOp(() => cbs.insertCols(cols[0], cols.length)) },
-      { label: `Insert ${cols.length} column${cols.length > 1 ? 's' : ''} right`,
+        fn: () => structOp(() => cbs.insertCols(cols[0], cols.length),
+          `insert ${plural(cols.length, 'column')}`) },
+      { label: `Insert ${plural(cols.length, 'column')} right`,
         disabled: ro || !cols.length,
-        fn: () => structOp(() => cbs.insertCols(cols[cols.length - 1] + 1, cols.length)) },
-      { label: `Delete ${cols.length} column${cols.length > 1 ? 's' : ''}`,
+        fn: () => structOp(() => cbs.insertCols(cols[cols.length - 1] + 1, cols.length),
+          `insert ${plural(cols.length, 'column')}`) },
+      { label: `Delete ${plural(cols.length, 'column')}`,
         disabled: ro || !cols.length || cols.length >= numCols(),
-        fn: () => structOp(() => cbs.deleteCols(cols)) },
+        fn: () => structOp(() => cbs.deleteCols(cols),
+          `delete ${plural(cols.length, 'column')}`) },
       '-',
       { label: 'Clear cells', disabled: ro || !s, fn: clearSelection },
       { label: 'Apply sort to DAT', disabled: ro || sortDir === 0 || !!filterStr,
@@ -912,7 +941,15 @@ const Grid = (() => {
         if (!t.trim()) return;
         const rows = t.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n')
           .map((l) => l.split('\t'));
-        if (rows.length) structOp(() => cbs.insertRows(datR(vr), rows));
+        if (!rows.length) return;
+        structOp(() => cbs.insertRows(datR(vr), rows),
+          `insert ${rows.length} clipboard row${rows.length > 1 ? 's' : ''}`);
+        if (viewReorderable()) {       // highlight the landed block
+          sel = { ar: vr, ac: 0, er: vr + rows.length - 1,
+            ec: numCols() - 1, rowMode: true };
+          extraSels = [];
+          render();
+        }
       }),
     });
     return items;
@@ -1101,7 +1138,8 @@ const Grid = (() => {
         if (mode !== 'reorder' || !armed || gap < 0) return;
         const rows = selDatRows();
         const to = gap < viewRows.length ? datR(gap) : T.cells.length;
-        structOp(() => cbs.moveRows(rows, to));
+        structOp(() => cbs.moveRows(rows, to),
+          `move ${rows.length} row${rows.length > 1 ? 's' : ''}`);
         // selection follows the dropped block (view == DAT order here)
         const selViews = rows.map((dr) => dr - headOff());
         const newStart = gap - selViews.filter((v) => v < gap).length;
@@ -1120,7 +1158,7 @@ const Grid = (() => {
   // cell menu, toolbar button) — view sort itself never mutates the table
   function applySortToDAT() {
     if (!T || !T.editable || sortDir === 0 || filterStr) return;
-    structOp(() => cbs.applySort(viewRows.slice()));
+    structOp(() => cbs.applySort(viewRows.slice()), 'apply sort to DAT');
     sortDir = 0;
     sortCol = -1;       // the reordered table broadcast follows
     renderAll();
@@ -1156,7 +1194,9 @@ const Grid = (() => {
       inp.remove();
       headEdit = null;
       clip.focus({ preventScroll: true });
-      if (commit && v !== val(0, c)) localEdit([{ r: 0, c, v }]);
+      if (commit && v !== val(0, c)) {
+        localEdit([{ r: 0, c, v }], `rename column ${c} → "${v}"`);
+      }
     };
     inp.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
@@ -1228,10 +1268,10 @@ const Grid = (() => {
           { label: 'Select column contents', disabled: !viewRows.length,
             fn: () => selectColumn(c) },
           '-',
-          { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1)) },
-          { label: 'Insert column right', disabled: ro, fn: () => structOp(() => cbs.insertCols(c + 1, 1)) },
+          { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1), 'insert column') },
+          { label: 'Insert column right', disabled: ro, fn: () => structOp(() => cbs.insertCols(c + 1, 1), 'insert column') },
           { label: 'Delete column', disabled: ro || numCols() < 2,
-            fn: () => structOp(() => cbs.deleteCols([c])) },
+            fn: () => structOp(() => cbs.deleteCols([c]), 'delete column') },
         ]);
         return;
       }
@@ -1264,7 +1304,7 @@ const Grid = (() => {
             const w = colW.splice(c, 1)[0];
             colW.splice(gap - (c < gap ? 1 : 0), 0, w);
             saveColW();
-            structOp(() => cbs.moveCols([c], gap));
+            structOp(() => cbs.moveCols([c], gap), 'move column');
           }
           return;
         }
@@ -1360,11 +1400,11 @@ const Grid = (() => {
 
   // toolbar entry points (routed through the grid for undo coverage)
   function appendRow() {
-    if (T && T.editable) structOp(() => cbs.insertRows(T.cells.length, [[]]));
+    if (T && T.editable) structOp(() => cbs.insertRows(T.cells.length, [[]]), 'append row');
   }
 
   function appendCol() {
-    if (T && T.editable) structOp(() => cbs.insertCols(numCols(), 1));
+    if (T && T.editable) structOp(() => cbs.insertCols(numCols(), 1), 'append column');
   }
 
   return { init, setTable, applyEdits, setFilter, dims, setStyle,

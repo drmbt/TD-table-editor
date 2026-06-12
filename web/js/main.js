@@ -12,6 +12,16 @@
 
   let table = null;
 
+  // footer action log (comp par Displaylog -> style.showlog; &log=1 in
+  // mock). Last action only — feedback, not history.
+  const logEl = $('oplog');
+  let showLog = new URLSearchParams(location.search).get('log') === '1';
+  function logAction(msg) {
+    if (!showLog || !msg) return;
+    logEl.textContent = msg;
+    logEl.hidden = false;
+  }
+
   // comp Style page -> CSS vars; rides on every {t:table} and as live
   // {t:style} broadcasts when a Style par changes
   const STYLE_VARS = {
@@ -30,6 +40,10 @@
     if (s.font) root.setProperty('--font-family', s.font);
     if (s.fontsize) root.setProperty('--fontsize', s.fontsize + 'px');
     if (s.rowh) root.setProperty('--rowh', s.rowh + 'px');
+    if ('showlog' in s) {
+      showLog = !!s.showlog;
+      logEl.hidden = !showLog || !logEl.textContent;
+    }
     Grid.setStyle({ rowh: s.rowh });
   }
 
@@ -68,6 +82,7 @@
       selEl.textContent = s.sel || '';
       $('btn-applysort').disabled = !s.sortApplicable;
     },
+    log: logAction,
   });
 
   Bridge.init({
@@ -103,19 +118,32 @@
     },
   });
 
-  filterEl.addEventListener('input', () => Grid.setFilter(filterEl.value));
+  const clearFilterBtn = $('btn-clearfilter');
+  function syncClearBtn() { clearFilterBtn.hidden = !filterEl.value; }
+  filterEl.addEventListener('input', () => {
+    Grid.setFilter(filterEl.value);
+    syncClearBtn();
+  });
   filterEl.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       filterEl.value = '';
       Grid.setFilter('');
       filterEl.blur();
+      syncClearBtn();
     }
     e.stopPropagation();
+  });
+  clearFilterBtn.addEventListener('click', () => {
+    filterEl.value = '';
+    Grid.setFilter('');
+    syncClearBtn();
   });
 
   $('btn-addrow').addEventListener('click', () => Grid.appendRow());
   $('btn-addcol').addEventListener('click', () => Grid.appendCol());
   $('btn-applysort').addEventListener('click', () => Grid.applySortToDAT());
+  $('btn-refresh').addEventListener('click', () => Bridge.send({ t: 'refresh' }));
+  $('btn-openpars').addEventListener('click', () => Bridge.send({ t: 'openpars' }));
 
   headerCb.addEventListener('change', () => {
     Bridge.send({ t: 'setheader', on: headerCb.checked });

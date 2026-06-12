@@ -77,6 +77,7 @@ class TableEditorExt:
 	# updates apply on reinitextensions (build_component creates bare DATs).
 
 	_PE2_PARS = ('Targetop Headerrow Refresh Openinbrowser Openviewer'
+				 ' Displaylog'
 				 ' Reloadclients'
 				 ' Bgcolor* Panelcolor* Cellcolor* Cellaltcolor* Gridcolor*'
 				 ' Headercolor* Guttercolor* Textcolor* Textdimcolor*'
@@ -129,6 +130,14 @@ class TableEditorExt:
 		('Rowheight', 'Row Height', 18, 48, 26),
 		('Fontsize', 'Font Size', 10, 20, 13),
 	)
+
+	# Font Family dropdown (the page applies these as CSS font-family)
+	_FONTS = [
+		'JetBrains Mono', 'SF Mono', 'Menlo', 'Monaco', 'Consolas',
+		'Courier New', 'monospace', 'Inter', 'Roboto', 'Helvetica Neue',
+		'Arial', 'Verdana', 'Tahoma', 'system-ui', 'sans-serif',
+		'Georgia', 'Times New Roman', 'serif',
+	]
 
 	_THEMES = {
 		'dark': {
@@ -223,12 +232,16 @@ class TableEditorExt:
 		comp = self.ownerComp
 		# pars added after the initial build land on the main page here
 		try:
+			tp = getattr(comp.par, 'Targetop', None)
+			mainPage = (tp.page if tp is not None
+						else comp.appendCustomPage('Table Editor'))
 			if getattr(comp.par, 'Reloadclients', None) is None:
-				tp = getattr(comp.par, 'Targetop', None)
-				mainPage = (tp.page if tp is not None
-							else comp.appendCustomPage('Table Editor'))
 				mainPage.appendPulse('Reloadclients',
 									 label='Reload Web Clients')
+			if getattr(comp.par, 'Displaylog', None) is None:
+				p = mainPage.appendToggle('Displaylog',
+										  label='Display Log')[0]
+				p.default = p.val = False
 		except Exception as e:
 			debug('TableEditor: main par setup failed: %s' % e)
 		# Style page (idempotent, per-par: new pars append on reinit)
@@ -247,7 +260,22 @@ class TableEditorExt:
 						p.default = v
 						p.val = v
 			if getattr(comp.par, 'Fontfamily', None) is None:
-				page.appendStr('Fontfamily', label='Font Family')
+				page.appendStrMenu('Fontfamily', label='Font Family')
+			# StrMenu dropdown of valid families (free text still typeable),
+			# menu items synced every init. Migrate pre-existing plain-Str
+			# pars: menuNames raises 'Expected menu parameter' on a Str
+			# (verified live), so destroy + recreate in place.
+			fp = comp.par.Fontfamily
+			if fp.style != 'StrMenu':
+				old_val, old_order = fp.eval(), fp.order
+				fp.destroy()
+				fp = page.appendStrMenu('Fontfamily',
+										label='Font Family')[0]
+				fp.val = old_val
+				fp.order = old_order
+			if list(fp.menuNames or []) != self._FONTS:
+				fp.menuNames = self._FONTS
+				fp.menuLabels = self._FONTS
 			for name, label, lo, hi, dv in self._STYLE_INTS:
 				if getattr(comp.par, name, None) is None:
 					p = page.appendInt(name, label=label)[0]
@@ -259,7 +287,7 @@ class TableEditorExt:
 			# created (e.g. drmbt) must land on existing comps too
 			p = comp.par.Theme
 			names = ['custom'] + sorted(self._THEMES)
-			if list(p.menuNames) != names:
+			if list(p.menuNames or []) != names:
 				p.menuNames = names
 				p.menuLabels = [n.capitalize() for n in names]
 		except Exception as e:
@@ -430,6 +458,11 @@ class TableEditorExt:
 			style['rowh'] = int(comp.par.Rowheight.eval())
 		except Exception:
 			pass
+		try:
+			# not styling, but rides the same broadcast: footer action log
+			style['showlog'] = bool(comp.par.Displaylog.eval())
+		except Exception:
+			pass
 		return style
 
 	def ApplyTheme(self, name):
@@ -581,6 +614,11 @@ class TableEditorExt:
 				# for ui.clipboard — the OS clipboard, CEF-safe
 				self._sendTo(client, {'t': 'clip',
 									  'text': str(ui.clipboard or '')})
+			elif t == 'refresh':
+				self.Refresh()
+			elif t == 'openpars':
+				# toolbar gear: pop the comp's parameter dialog in TD
+				self.ownerComp.openParameters()
 			elif t == 'setheader':
 				old = bool(self.ownerComp.par.Headerrow.eval())
 				new = bool(msg.get('on'))

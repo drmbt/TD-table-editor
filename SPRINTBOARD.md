@@ -215,6 +215,41 @@ TD-native undo:
 
 ## Changelog
 
+### 2026-06-12 — Session 1n (RFE round 3: rename fix, toolbar buttons, action log, font menu)
+- **Rename-column bug found and fixed**: the context-menu item handler
+  never called preventDefault, so a real (trusted) mousedown's default
+  action moved focus to body right after renameColumn focused its
+  input → instant blur-commit-close. Synthetic test events skip native
+  focus behavior, which is why the 1m mock test passed. The handler
+  now preventDefaults + skips disabled items (they used to fire!).
+- Clipboard-row insert highlights the landed block (rowMode selection,
+  mirrors ctrl+d behavior).
+- Toolbar upper-right: ⟳ refresh button ({t:refresh} → ext.Refresh)
+  and ⚙ gear ({t:openpars} → comp.openParameters() pops the comp's
+  parameter dialog in TD). Both documented in README/CLAUDE.md.
+- Apply Sort button is lit (accent border/text) whenever the sort is
+  dirty — i.e. exactly when it's enabled.
+- Displaylog comp par (main page toggle) → `showlog` rides the style
+  broadcast → footer #oplog shows the last action ("insert 3 clipboard
+  rows", "rename column 1 → …", "undo", "apply sort to DAT", …). All
+  grid mutations route through localEdit/structOp labels. Mock test
+  hook: &log=1.
+- Fontfamily migrated Str → StrMenu (menuNames on a Str par raises
+  'Expected menu parameter', verified live — the failed assignment
+  also clobbered the par value, restored). _ensureSetup destroys +
+  recreates the par in place (value/order preserved) and syncs the
+  `_FONTS` dropdown every init. Also hardened the Theme/font menu
+  sync against None menuNames (was aborting the whole style-page
+  setup on existing comps).
+- Filter field gained a ✕ clear button (appears only while non-empty).
+- Live-TD verified: clipboard insert highlighted rows 2-4 with the log
+  line visible in the footer, refresh rev-bumped, gear opened the par
+  dialog. Also found /project1/define had grown a blank trailing
+  column during Vincent's hands-on testing — it crashed ListerUI's
+  GetRawData on every change (fps hits); deleted it via the ext
+  (TD-undoable). Note: a second comp copy lives at
+  /project1/TableEditor1 and picks up the same synced code.
+
 ### 2026-06-12 — Session 1m (M4: menus, clipboard pull, sort button, paste-grow + M2 perf)
 - Protocol: `{t:getclip}` client→TD; ext replies `{t:clip,text}` with
   ui.clipboard (the OS clipboard — works in offscreen CEF and external

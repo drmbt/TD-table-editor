@@ -142,6 +142,10 @@ Client → TD:
                                            // (gutter "Insert clipboard rows")
 {"t":"setheader",  "on":true}              // first row = sticky header
 {"t":"settable",   "path":"/project1/table1"}  // retarget the editor
+{"t":"refresh"}                            // toolbar ⟳: re-pull the target
+                                           // table and rebroadcast
+{"t":"openpars"}                           // toolbar ⚙: open the comp's
+                                           // parameter dialog in TD
 ```
 
 TD → client:

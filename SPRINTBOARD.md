@@ -155,6 +155,47 @@ This repo has no .toe; rebuild anywhere with td/build_component.py
 
 ## Changelog
 
+### 2026-06-12 — Session 1i (RFE: undo, no type-to-edit, selection-follow, shift+wheel)
+- **TD state verified without MCP** (still not re-registered with this
+  session): the live :9981 table broadcast carries the `highlight`
+  style key and Vincent's rowh=28 tweak → the 1h ext IS loaded, Style
+  page + Reloadclients exist. A setheader round trip over the WS proved
+  the parexec valuechange path fires and rebroadcasts within a frame —
+  so theme changes DO broadcast; his in-TD page just runs pre-1e js.
+  **One Reloadclients pulse fixes it for good.**
+- **Typing regression fixed**: type-to-replace removed — editing starts
+  only via double-click/Enter/F2, so typing aimed at the filter can
+  never overwrite cells. In-TD `__tdKey` now routes keys to whatever
+  page input has focus (filter box: chars/backspace/esc/enter handled,
+  input events fired) before falling through to grid nav.
+- **Undo/redo**: client-side history (cap 100). Cell edits (incl.
+  paste/clear/cut) store inverse value lists; structural ops
+  (insert/delete/move rows & cols, sort-apply, toolbar adds) snapshot
+  the table pre-op and restore via the new `{t:replace}` op (ext
+  `_replaceCells` → `_rewrite`). ctrl+z / ctrl+shift+z / ctrl+y, also
+  through the in-TD keyboardin path. Single-editor assumption
+  documented. Toolbar +Row/+Col routed through Grid.appendRow/Col for
+  undo coverage.
+- **Selection follows reorder**: after a gutter drag-reorder the moved
+  block stays selected at its drop position (verified: cues 2,3 moved
+  to view rows 4,5, selection followed).
+- **Shift+wheel horizontal scroll**: Vincent exposed the panel `shift`
+  channel; chopexec ignores modifier-channel changes, reads shift at
+  wheel time → `ForwardWheel(..., shift)` → `__tdHWheel` scrolls
+  body.scrollLeft (interactMouse wheel is vertical-only). External
+  browsers already do shift+wheel natively. Panel select string now
+  canonical with `shift ctrl alt` (ensureSetup + builder).
+- **Drag-listener leak hardening**: all drag move/up handlers now attach
+  to `window` (a pointerup that escapes a failed pointer capture could
+  leave a live select-mode handler hijacking later drags — caught when
+  a leaked handler turned a 2-row reorder into a 6-row selection in
+  tests); shift-click on the gutter no longer arms a drag.
+- All verified in mock, clean console: no-edit-on-type, undo/redo cycles
+  (cell + structural + via __tdKey), filter typing via __tdKey with esc
+  clear, __tdHWheel 0→240→0, selection-follow.
+- Row-index click already selects the row and highlights the index
+  (gutter `.sel` styling) — Vincent's report was the stale-page issue.
+
 ### 2026-06-12 — Session 1h (RFE: drmbt theme, highlight color, hover, multi-select, reload pulse)
 - **Theme-needs-refresh diagnosis**: the in-TD page is almost certainly
   running stale js — the `{t:style}` handler shipped in session 1e, but

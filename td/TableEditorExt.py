@@ -143,9 +143,16 @@ class TableEditorExt:
 		"def onValueChange(channel, sampleIndex, val, prev):\n"
 		"\tc = channel.owner\n"
 		"\text = parent().ext.TableEditorExt\n"
+		"\tif channel.name in ('shift', 'ctrl', 'alt'):\n"
+		"\t\treturn  # modifier state is read at use, not forwarded\n"
 		"\tif channel.name == 'wheel':\n"
 		"\t\t# panel wheel is an instantaneous displacement (then snaps to 0)\n"
-		"\t\text.ForwardWheel(float(c['insideu']), float(c['insidev']), val)\n"
+		"\t\ttry:\n"
+		"\t\t\tshift = bool(float(c['shift']))\n"
+		"\t\texcept Exception:\n"
+		"\t\t\tshift = False\n"
+		"\t\text.ForwardWheel(float(c['insideu']), float(c['insidev']),\n"
+		"\t\t                 val, shift)\n"
 		"\telse:\n"
 		"\t\text.ForwardMouse(float(c['u']), float(c['v']),\n"
 		"\t\t                 float(c['insideu']), float(c['insidev']),\n"
@@ -220,9 +227,9 @@ class TableEditorExt:
 		if panel is not None:
 			sel = panel.par.select.eval()
 			if ('rselect' not in sel or 'wheel' not in sel
-					or 'insideu' not in sel):
+					or 'insideu' not in sel or 'shift' not in sel):
 				panel.par.select = ('u v insideu insidev lselect rselect'
-									' inside wheel')
+									' inside wheel shift ctrl alt')
 		ce = comp.op('chopexec_mouse')
 		if ce is not None and ce.text != self._CE_TEXT:
 			ce.text = self._CE_TEXT
@@ -513,6 +520,8 @@ class TableEditorExt:
 				self._moveCols(msg.get('cols') or [], int(msg.get('to', 0)))
 			elif t == 'reorder':
 				self._reorderRows(msg.get('rows') or [])
+			elif t == 'replace':
+				self._replaceCells(msg.get('cells') or [])
 			elif t == 'sel':
 				self.OnSelection(msg.get('sel'))
 			elif t == 'clip':
@@ -624,6 +633,13 @@ class TableEditorExt:
 		self._rewrite([[v for i, v in enumerate(r) if i not in drop]
 					   for r in cells])
 
+	def _replaceCells(self, cells):
+		"""Whole-table rewrite — the client undo/redo path for structural
+		ops (the inverse of insert/delete/move is a snapshot restore)."""
+		norm = [[str(v) for v in row] for row in cells]
+		if norm:
+			self._rewrite(norm)
+
 	def _reorderRows(self, rows):
 		"""Apply a full data-row permutation (the page's 'Apply sort to
 		DAT'). Header rows keep their place; rows missing from the list
@@ -687,12 +703,18 @@ class TableEditorExt:
 
 	_WHEEL_SCALE = 1  # panel wheel notches map 1:1 to interactMouse wheel
 
-	def ForwardWheel(self, u, v, displace):
+	def ForwardWheel(self, u, v, displace, shift=False):
 		if not displace:
 			return
 		try:
 			web = self.ownerComp.op('webrender1')
 			if web is None:
+				return
+			if shift:
+				# interactMouse wheel is vertical-only; shift+wheel scrolls
+				# the grid horizontally via an injected page hook
+				web.executeJavaScript(
+					'window.__tdHWheel && window.__tdHWheel(%f)' % displace)
 				return
 			web.interactMouse(u, v, wheel=displace * self._WHEEL_SCALE)
 		except Exception:

@@ -42,6 +42,7 @@
     deleteCols: (cols) => Bridge.send({ t: 'deletecols', cols }),
     moveCols: (cols, to) => Bridge.send({ t: 'movecols', cols, to }),
     applySort: (rows) => Bridge.send({ t: 'reorder', rows }),
+    replace: (cells) => Bridge.send({ t: 'replace', cells }),
     select: (sel) => Bridge.send({ t: 'sel', sel }),
     clip: (text) => Bridge.send({ t: 'clip', text }),
     status: (s) => {
@@ -90,15 +91,8 @@
     e.stopPropagation();
   });
 
-  $('btn-addrow').addEventListener('click', () => {
-    const d = Grid.dims();
-    if (d && d.editable) Bridge.send({ t: 'insertrows', at: d.rows, rows: [[]] });
-  });
-
-  $('btn-addcol').addEventListener('click', () => {
-    const d = Grid.dims();
-    if (d && d.editable) Bridge.send({ t: 'insertcols', at: d.cols, count: 1 });
-  });
+  $('btn-addrow').addEventListener('click', () => Grid.appendRow());
+  $('btn-addcol').addEventListener('click', () => Grid.appendCol());
 
   headerCb.addEventListener('change', () => {
     Bridge.send({ t: 'setheader', on: headerCb.checked });

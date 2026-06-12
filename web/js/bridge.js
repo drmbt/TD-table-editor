@@ -129,6 +129,9 @@ const Bridge = (() => {
         });
         later(mockTableMsg());
       }
+    } else if (msg.t === 'replace') {
+      MOCK.cells = (msg.cells || []).map((r) => r.map(String));
+      later(mockTableMsg());
     } else if (msg.t === 'reorder') {
       // full data-row permutation (header rows keep their place)
       const hdr = MOCK.headerRow ? 1 : 0;

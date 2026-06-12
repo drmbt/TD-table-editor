@@ -128,8 +128,9 @@ def build():
 
 	panel = comp.create(panelCHOP, 'panel1')
 	panel.par.component = '..'
-	# u/v track only while a button is held; insideu/insidev track rollover
-	panel.par.select = 'u v insideu insidev lselect rselect inside wheel'
+	# u/v track only while a button is held; insideu/insidev track rollover;
+	# shift rides with wheel for horizontal scrolling
+	panel.par.select = 'u v insideu insidev lselect rselect inside wheel shift ctrl alt'
 
 	# text filled by ext._ensureSetup() on reinit (canonical copy lives there)
 	ce = comp.create(chopexecuteDAT, 'chopexec_mouse')

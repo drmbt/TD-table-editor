@@ -336,7 +336,15 @@ const Grid = (() => {
       const auto = computeAuto();
       fillIdx = auto.maxCh.indexOf(Math.max(...auto.maxCh));
     }
-    if (!samePath) { sortCol = -1; sortDir = 0; sel = null; body.scrollTop = 0; }
+    if (!samePath) {
+      sortCol = -1;
+      sortDir = 0;
+      sel = null;
+      extraSels = [];
+      body.scrollTop = 0;
+      history = [];
+      histPos = 0;
+    }
     renderAll();
   }
 
@@ -353,7 +361,7 @@ const Grid = (() => {
     render();
   }
 
-  function localEdit(edits) {
+  function applyAndSend(edits) {
     for (const e of edits) {
       if (T.cells[e.r] && e.c >= 0 && e.c < T.cells[e.r].length) {
         T.cells[e.r][e.c] = e.v;
@@ -363,6 +371,63 @@ const Grid = (() => {
     if (sortDir !== 0 || filterStr) recomputeView();
     renderHead();
     render();
+  }
+
+  // ---- undo/redo --------------------------------------------------------------
+  // Client-side history for edits made from THIS page. Cell edits store
+  // inverse value lists; structural ops store a whole-table snapshot and
+  // undo via {t:replace} (the inverse of insert/delete/move is a restore).
+  // Single-editor assumption: an undo replays over concurrent edits.
+
+  const HIST_MAX = 100;
+  let history = [];
+  let histPos = 0;
+
+  function pushHist(entry) {
+    history.length = histPos;          // drop any redo tail
+    history.push(entry);
+    if (history.length > HIST_MAX) history.shift();
+    histPos = history.length;
+  }
+
+  function localEdit(edits) {
+    const prev = edits.map((e) => ({ r: e.r, c: e.c, v: val(e.r, e.c) }));
+    pushHist({ kind: 'edit', undo: prev,
+      redo: edits.map((e) => ({ r: e.r, c: e.c, v: e.v })) });
+    applyAndSend(edits);
+  }
+
+  // wrap a structural send with a pre-op snapshot for undo
+  function structOp(send) {
+    if (!T || !T.editable) return;
+    pushHist({ kind: 'table', pre: T.cells.map((row) => row.slice()) });
+    send();
+  }
+
+  function restoreCells(cells) {
+    cbs.replace(cells.map((row) => row.slice()));
+    T.cells = cells.map((row) => row.slice());   // optimistic
+    renderAll();
+  }
+
+  function undo() {
+    if (!T || !T.editable || histPos === 0) return;
+    histPos--;
+    const h = history[histPos];
+    if (h.kind === 'edit') {
+      applyAndSend(h.undo.map((e) => ({ ...e })));
+    } else {
+      h.post = T.cells.map((row) => row.slice());   // for redo
+      restoreCells(h.pre);
+    }
+  }
+
+  function redo() {
+    if (!T || !T.editable || histPos >= history.length) return;
+    const h = history[histPos];
+    histPos++;
+    if (h.kind === 'edit') applyAndSend(h.redo.map((e) => ({ ...e })));
+    else if (h.post) restoreCells(h.post);
   }
 
   // ---- selection & navigation --------------------------------------------------
@@ -560,10 +625,16 @@ const Grid = (() => {
       sel = null;
       extraSels = [];
       render();
-    } else if (!meta && k.length === 1 && sel && T.editable) {
-      startEdit(sel.ar, sel.ac, k);
+    } else if (meta && (k === 'z' || k === 'Z')) {
+      if (e.shiftKey) redo(); else undo();
+      e.preventDefault();
+    } else if (meta && (k === 'y' || k === 'Y')) {
+      redo();
       e.preventDefault();
     }
+    // NOTE: no type-to-replace — editing starts only via double-click,
+    // Enter or F2, so stray typing (e.g. aimed at the filter) never
+    // overwrites cells
   }
 
   // TD in-panel keystrokes arrive via executeJavaScript (webrenderTOP has no
@@ -577,6 +648,23 @@ const Grid = (() => {
   };
 
   window.__tdKey = (k) => {
+    // a focused page input (e.g. the filter box) gets the keys — in-TD
+    // keystrokes only arrive through here, so route them to whatever
+    // editor has focus instead of the grid
+    const ae = document.activeElement;
+    if (ae && ae !== clip && ae !== editInput
+        && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+      if (k.key === 'backspace') ae.value = ae.value.slice(0, -1);
+      else if (k.key === 'esc') { ae.value = ''; ae.blur(); clip.focus({ preventScroll: true }); }
+      else if (k.key === 'enter' || k.key === 'tab') {
+        ae.blur();
+        clip.focus({ preventScroll: true });
+        return;
+      } else if (k.ch && k.ch.length === 1 && !k.ctrl) ae.value += k.ch;
+      else return;
+      ae.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
     if (editing && editInput) {
       if (k.key === 'enter') { commitEdit(1, 0); return; }
       if (k.key === 'tab') { commitEdit(0, 1); return; }
@@ -588,7 +676,9 @@ const Grid = (() => {
       if (k.ch) editInput.value += k.ch;
       return;
     }
-    const key = TD_KEYS[k.key] || (k.ch && k.ch.length === 1 ? k.ch : null);
+    const key = TD_KEYS[k.key]
+      || (k.key && k.key.length === 1 ? k.key : null)   // ctrl chords (z/y)
+      || (k.ch && k.ch.length === 1 ? k.ch : null);
     if (key === null) return;
     handleKey({
       key, shiftKey: !!k.shift, ctrlKey: !!k.ctrl, metaKey: false,
@@ -612,6 +702,12 @@ const Grid = (() => {
       return;
     }
     pasteTSV(String(text || ''));
+  };
+
+  // shift+wheel in-TD: interactMouse wheel is vertical-only, so the ext
+  // injects horizontal scrolls here (external browsers do it natively)
+  window.__tdHWheel = (notches) => {
+    if (body) body.scrollLeft -= notches * 120;
   };
 
   // ---- context menu ------------------------------------------------------------------------
@@ -657,19 +753,19 @@ const Grid = (() => {
     const blank = (n) => Array.from({ length: n }, () => []);
     return [
       { label: `Insert ${nr} row${nr > 1 ? 's' : ''} above`, disabled: ro,
-        fn: () => cbs.insertRows(at, blank(nr)) },
+        fn: () => structOp(() => cbs.insertRows(at, blank(nr))) },
       { label: `Insert ${nr} row${nr > 1 ? 's' : ''} below`, disabled: ro,
-        fn: () => cbs.insertRows((rows.length ? rows[rows.length - 1] : T.cells.length - 1) + 1, blank(nr)) },
+        fn: () => structOp(() => cbs.insertRows((rows.length ? rows[rows.length - 1] : T.cells.length - 1) + 1, blank(nr))) },
       { label: `Delete ${nr} row${nr > 1 ? 's' : ''}`, disabled: ro || !rows.length,
-        fn: () => cbs.deleteRows(rows) },
+        fn: () => structOp(() => cbs.deleteRows(rows)) },
       '-',
       { label: 'Insert column left', disabled: ro || !cols.length,
-        fn: () => cbs.insertCols(cols[0], 1) },
+        fn: () => structOp(() => cbs.insertCols(cols[0], 1)) },
       { label: 'Insert column right', disabled: ro || !cols.length,
-        fn: () => cbs.insertCols(cols[cols.length - 1] + 1, 1) },
+        fn: () => structOp(() => cbs.insertCols(cols[cols.length - 1] + 1, 1)) },
       { label: `Delete ${cols.length} column${cols.length > 1 ? 's' : ''}`,
         disabled: ro || !cols.length || cols.length >= numCols(),
-        fn: () => cbs.deleteCols(cols) },
+        fn: () => structOp(() => cbs.deleteCols(cols)) },
       '-',
       { label: 'Clear cells', disabled: ro || !s, fn: clearSelection },
     ];
@@ -737,11 +833,11 @@ const Grid = (() => {
         }
       };
       const onUp = () => {
-        body.removeEventListener('pointermove', onMove);
-        body.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
       };
-      body.addEventListener('pointermove', onMove);
-      body.addEventListener('pointerup', onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
     });
 
     body.addEventListener('dblclick', (e) => {
@@ -806,7 +902,9 @@ const Grid = (() => {
         sel.ac = 0;
         sel.ec = numCols() - 1;
         render();
-      } else if (inSel && viewReorderable()) {
+        return;                  // extend only — no drag from a shift-click
+      }
+      if (inSel && viewReorderable()) {
         mode = 'reorder';
       } else {
         selectRow(vr, false);
@@ -836,17 +934,24 @@ const Grid = (() => {
         dropline.hidden = false;
       };
       const onUp = () => {
-        gutter.removeEventListener('pointermove', onMove);
-        gutter.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
         dropline.hidden = true;
         if (mode !== 'reorder' || !armed || gap < 0) return;
         const rows = selDatRows();
         const to = gap < viewRows.length ? datR(gap) : T.cells.length;
-        cbs.moveRows(rows, to);
+        structOp(() => cbs.moveRows(rows, to));
+        // selection follows the dropped block (view == DAT order here)
+        const selViews = rows.map((dr) => dr - headOff());
+        const newStart = gap - selViews.filter((v) => v < gap).length;
+        sel = { ar: newStart, ac: 0,
+          er: newStart + rows.length - 1, ec: numCols() - 1 };
+        extraSels = [];
+        render();
       };
       capture(gutter, e);
-      gutter.addEventListener('pointermove', onMove);
-      gutter.addEventListener('pointerup', onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
     });
   }
 
@@ -878,13 +983,13 @@ const Grid = (() => {
           render();
         };
         const onUp = () => {
-          colhead.removeEventListener('pointermove', onMove);
-          colhead.removeEventListener('pointerup', onUp);
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
           saveColW();
         };
         capture(colhead, e);
-        colhead.addEventListener('pointermove', onMove);
-        colhead.addEventListener('pointerup', onUp);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
         return;
       }
       const h = e.target.closest('.hcell');
@@ -901,15 +1006,15 @@ const Grid = (() => {
             fn: () => { sortDir = 0; sortCol = -1; renderAll(); } },
           { label: 'Apply sort to DAT', disabled: ro || sortDir === 0 || !!filterStr,
             fn: () => {
-              cbs.applySort(viewRows.slice());
+              structOp(() => cbs.applySort(viewRows.slice()));
               sortDir = 0;
               sortCol = -1;       // the reordered table broadcast follows
             } },
           '-',
-          { label: 'Insert column left', disabled: ro, fn: () => cbs.insertCols(c, 1) },
-          { label: 'Insert column right', disabled: ro, fn: () => cbs.insertCols(c + 1, 1) },
+          { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1)) },
+          { label: 'Insert column right', disabled: ro, fn: () => structOp(() => cbs.insertCols(c + 1, 1)) },
           { label: 'Delete column', disabled: ro || numCols() < 2,
-            fn: () => cbs.deleteCols([c]) },
+            fn: () => structOp(() => cbs.deleteCols([c])) },
         ]);
         return;
       }
@@ -933,8 +1038,8 @@ const Grid = (() => {
         colDrop.hidden = false;
       };
       const onUp = () => {
-        colhead.removeEventListener('pointermove', onMove);
-        colhead.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
         colDrop.hidden = true;
         if (dragging) {
           if (gap >= 0 && gap !== c && gap !== c + 1) {
@@ -942,7 +1047,7 @@ const Grid = (() => {
             const w = colW.splice(c, 1)[0];
             colW.splice(gap - (c < gap ? 1 : 0), 0, w);
             saveColW();
-            cbs.moveCols([c], gap);
+            structOp(() => cbs.moveCols([c], gap));
           }
           return;
         }
@@ -952,8 +1057,8 @@ const Grid = (() => {
         renderAll();
       };
       capture(colhead, e);
-      colhead.addEventListener('pointermove', onMove);
-      colhead.addEventListener('pointerup', onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
     });
   }
 
@@ -1036,5 +1141,15 @@ const Grid = (() => {
     if (T) renderAll();
   }
 
-  return { init, setTable, applyEdits, setFilter, dims, setStyle };
+  // toolbar entry points (routed through the grid for undo coverage)
+  function appendRow() {
+    if (T && T.editable) structOp(() => cbs.insertRows(T.cells.length, [[]]));
+  }
+
+  function appendCol() {
+    if (T && T.editable) structOp(() => cbs.insertCols(numCols(), 1));
+  }
+
+  return { init, setTable, applyEdits, setFilter, dims, setStyle,
+    appendRow, appendCol };
 })();

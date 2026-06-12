@@ -42,8 +42,10 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 `{t:insertrows,at,rows:[[...]]}` `{t:deleterows,rows:[...]}`
 `{t:moverows,rows:[...],to}` `{t:insertcols,at,count}`
 `{t:deletecols,cols:[...]}` `{t:movecols,cols:[...],to}`
-`{t:reorder,rows:[perm]}` (Apply sort to DAT) `{t:sel,sel:{rows,c0,c1}}`
-(→ sel_rows/sel_cells output DATs) `{t:clip,text}` (→ ui.clipboard)
+`{t:reorder,rows:[perm]}` (Apply sort to DAT) `{t:replace,cells:[[...]]}`
+(whole-table rewrite — the client undo path for structural ops)
+`{t:sel,sel:{rows,c0,c1}}` (→ sel_rows/sel_cells output DATs)
+`{t:clip,text}` (→ ui.clipboard)
 `{t:setheader,on}` `{t:settable,path}`;
 TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
 `{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:reload}`
@@ -54,7 +56,15 @@ selection/hover tints derive from `highlight` (--hl), not accent.
 Themes: custom/dark/drmbt/light/synthwave. Selection model: one ACTIVE
 rect + extra rects (ctrl/cmd-click adds areas; gutter ctrl-click
 toggles rows; in-TD mouse forwarding has no modifiers — gutter drag is
-the in-TD multi-select). In-TD ctrl+c/x/v
+the in-TD multi-select). Editing starts ONLY via double-click/Enter/F2 —
+no type-to-replace (stray typing must never overwrite cells); `__tdKey`
+routes to whatever page input has focus (filter box) before grid nav.
+Undo/redo: ctrl+z / ctrl+shift+z / ctrl+y — client-side history; cell
+edits store inverse values, structural ops snapshot the table and
+restore via {t:replace} (single-editor assumption). Reorder keeps the
+selection on the moved block. Shift+wheel scrolls horizontally in-TD
+(panel `shift` channel → `__tdHWheel`; interactMouse wheel is
+vertical-only). In-TD ctrl+c/x/v
 route through ui.clipboard (ForwardKey intercepts); column widths are
 content-aware with a fill column (the content-richest column absorbs
 spare viewport width); saved manual widths override auto.

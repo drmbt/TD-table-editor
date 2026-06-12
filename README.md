@@ -40,16 +40,21 @@ This project takes the architecture proven by
 
 - Spreadsheet-style grid with **virtualized scrolling** (large tables stay
   snappy)
-- **Cell editing**: double-click, Enter, or just type; Esc reverts;
+- **Cell editing**: double-click, Enter or F2 (deliberately *not*
+  type-to-replace — stray typing never overwrites cells); Esc reverts;
   Tab/Enter commit and advance
+- **Undo / redo** (ctrl+z / ctrl+shift+z / ctrl+y) covering cell edits,
+  paste, clear, and structural ops (insert/delete/move/sort-apply
+  restore from snapshots)
 - **Multi-cell selection**: click-drag ranges, shift-click extend,
   **ctrl/cmd-click adds non-contiguous areas** (and toggles rows on the
   gutter — copy your picked rows as TSV), full keyboard navigation
 - **Copy / cut / paste** TSV blocks — interoperable with Excel, Sheets,
   and text editors
-- **Row reordering** by dragging the row gutter (writes the DAT); dragging
-  an unselected row **range-selects** rows instead — no modifier keys
-  needed, so it works with in-TD forwarded mouse input
+- **Row reordering** by dragging the row gutter (writes the DAT; the
+  selection follows the dropped block); dragging an unselected row
+  **range-selects** rows instead — no modifier keys needed, so it works
+  with in-TD forwarded mouse input. Shift+wheel scrolls horizontally
 - **Column reordering** by dragging a column header (writes the DAT);
   a plain click still sorts
 - **Insert / delete rows and columns** via context menu and toolbar

@@ -290,6 +290,21 @@ class TableEditorExt:
 				p = mainPage.appendOP('Callbackdat',
 									  label='Callback DAT')[0]
 				p.val = './callbacks'
+			cd = comp.op('colDefine')
+			if cd is None:
+				cd = comp.create(tableDAT, 'colDefine')
+				cd.nodeX, cd.nodeY = 200, -400
+			# seed property rows whenever the DAT is empty (not only at
+			# creation — a failed first init must heal on the next one)
+			if cd.numRows == 0 or (cd.numRows == 1 and cd.numCols == 1
+									and not cd[0, 0].val.strip()):
+				cd.clear()
+				for rname in self._COLDEF_ROWS:
+					cd.appendRow([rname])
+			if getattr(comp.par, 'Coldefine', None) is None:
+				p = mainPage.appendOP('Coldefine',
+									  label='Column Define DAT')[0]
+				p.val = './colDefine'
 		except Exception as e:
 			debug('TableEditor: main par setup failed: %s' % e)
 		# Style page (idempotent, per-par: new pars append on reinit)
@@ -543,6 +558,7 @@ class TableEditorExt:
 
 	def _tableMsg(self):
 		dat = self._target()
+		uicols, uivals = self._uiPayload()
 		return {
 			't': 'table',
 			'rev': self.rev,
@@ -551,6 +567,8 @@ class TableEditorExt:
 			'editable': bool(dat is not None and self._editable(dat)),
 			'headerRow': bool(self.ownerComp.par.Headerrow.eval()),
 			'style': self._styleDict(),
+			'uicols': uicols,
+			'uivals': uivals,
 			'cells': self._snap if self._snap is not None else [],
 		}
 
@@ -668,14 +686,33 @@ class TableEditorExt:
 			elif t == 'refresh':
 				self.Refresh()
 			elif t == 'button':
-				# button-format cell clicked: hand the callback the full
-				# row (incl. hidden columns) so it can reach its target
+				# button cell clicked: hand the callback the full row
+				# (incl. hidden columns) so it can reach its target.
+				# Lister-style named callback (onClickPlay for column
+				# 'play') wins over the generic onButtonClick.
 				r = int(msg.get('r', -1))
 				cells = (list(self._snap[r]) if self._snap is not None
 						 and 0 <= r < len(self._snap) else [])
-				self._callback('onButtonClick',
-							   {'row': r, 'col': int(msg.get('c', -1)),
-								'cells': cells})
+				names = self._colNames()
+				colName = str(msg.get('col', ''))
+				c = int(msg.get('c', -1))
+				if not colName and 0 <= c < len(names):
+					colName = names[c]
+				info = {'row': r, 'col': c, 'column': colName,
+						'cells': cells,
+						'cellsByName': {n: (cells[i] if i < len(cells)
+											else '')
+										for i, n in enumerate(names)}}
+				named = ('onClick' + colName[:1].upper() + colName[1:]
+						 if colName else '')
+				if named and self._hasCallback(named):
+					self._callback(named, info)
+				else:
+					self._callback('onButtonClick', info)
+			elif t == 'setcoldef':
+				# page menus / column-settings wizard write the config
+				self._setColDef(msg.get('defs') or [])
+				self.Refresh()
 			elif t == 'cursor':
 				# offscreen CEF can't change the OS cursor — the page
 				# reports the CSS cursor under the pointer and we map it
@@ -707,6 +744,150 @@ class TableEditorExt:
 		if dat is None or not self._editable(dat):
 			return None
 		return dat
+
+	# ---- colDefine: configured UI columns (Lister's colDefine model) -------
+	# Rows are properties, data columns are UI columns. An entry whose
+	# `source` names a table column overrides that column's look; an entry
+	# without `source` is a VIRTUAL column appended after the table columns
+	# (button/thumb/eval content). `expr` evaluates per data row TD-side
+	# with `cells` (dict by column name), `row`, `op`, `me` in scope.
+
+	_COLDEF_ROWS = ('column', 'label', 'source', 'mode', 'expr', 'icon',
+					'visible', 'width', 'editable')
+
+	def _colDef(self):
+		par = getattr(self.ownerComp.par, 'Coldefine', None)
+		return par.eval() if par is not None else None
+
+	def _colNames(self):
+		"""Source-table column names: header row if Headerrow, else c0..cN."""
+		snap = self._snap or []
+		ncols = len(snap[0]) if snap else 0
+		if ncols and bool(self.ownerComp.par.Headerrow.eval()):
+			return [str(v) for v in snap[0]]
+		return ['c%d' % i for i in range(ncols)]
+
+	def _uiColsSpec(self):
+		"""Parse the colDefine DAT -> list of UI column dicts (or [])."""
+		cd = self._colDef()
+		if cd is None or cd.numCols < 2 or cd.numRows < 1:
+			return []
+		rowIdx = {}
+		for r in range(cd.numRows):
+			rowIdx[cd[r, 0].val.strip()] = r
+		if 'column' not in rowIdx:
+			return []
+		names = self._colNames()
+		defs = []
+		for c in range(1, cd.numCols):
+			def cell(prop, dv=''):
+				r = rowIdx.get(prop)
+				return cd[r, c].val.strip() if r is not None else dv
+			name = cell('column')
+			if not name:
+				continue
+			source = cell('source')
+			d = {
+				'name': name,
+				'label': cell('label') or '*',
+				'src': names.index(source) if source in names else -1,
+				'mode': cell('mode') or 'text',
+				'expr': cell('expr'),
+				'icon': cell('icon'),
+				'visible': cell('visible') not in ('0', 'false'),
+				'width': cell('width'),
+				'editable': cell('editable') not in ('0', 'false'),
+			}
+			if d['label'] == '*':
+				d['label'] = name
+			defs.append(d)
+		return defs
+
+	def _uiVals(self, defs):
+		"""Evaluate expr-bearing UI columns per data row -> {name: [vals]}
+		(list aligned to DAT rows; header row evaluates to '')."""
+		out = {}
+		snap = self._snap or []
+		if not snap:
+			return out
+		names = self._colNames()
+		head = 1 if bool(self.ownerComp.par.Headerrow.eval()) else 0
+		comp = self.ownerComp
+		for d in defs:
+			if not d['expr']:
+				continue
+			try:
+				code = compile(d['expr'], '<colDefine:%s>' % d['name'], 'eval')
+			except Exception as e:
+				debug('TableEditor: colDefine expr %s: %s' % (d['name'], e))
+				continue
+			vals = []
+			for r, rowVals in enumerate(snap):
+				if r < head:
+					vals.append('')
+					continue
+				cells = {n: (rowVals[i] if i < len(rowVals) else '')
+						 for i, n in enumerate(names)}
+				try:
+					v = eval(code, {'op': op, 'me': comp, 'tdu': tdu,
+									'cells': cells, 'row': r})
+				except Exception:
+					v = ''
+				vals.append(str(v) if v is not None else '')
+			out[d['name']] = vals
+		return out
+
+	def _uiPayload(self):
+		"""(uicols, uivals) for broadcasts — ({}, {}) when unconfigured."""
+		defs = self._uiColsSpec()
+		if not defs:
+			return [], {}
+		return defs, self._uiVals(defs)
+
+	def _setColDef(self, entries):
+		"""Write entries [{column, set:{prop: value}}] into the colDefine
+		DAT (creates the DAT shape, property rows and columns as needed) —
+		the page menus/wizard edit the config through this."""
+		cd = self._colDef()
+		if cd is None:
+			return
+		if cd.numRows < 1 or cd[0, 0].val.strip() != 'column':
+			cd.clear()
+			for rname in self._COLDEF_ROWS:
+				cd.appendRow([rname])
+		rowIdx = {cd[r, 0].val.strip(): r for r in range(cd.numRows)}
+		for prop in self._COLDEF_ROWS:
+			if prop not in rowIdx:
+				cd.appendRow([prop])
+				rowIdx[prop] = cd.numRows - 1
+		for e in entries:
+			name = str(e.get('column', '')).strip()
+			if not name:
+				continue
+			col = None
+			for c in range(1, cd.numCols):
+				if cd[rowIdx['column'], c].val.strip() == name:
+					col = c
+					break
+			vals = e.get('set')
+			if vals is None:          # no props -> delete the entry
+				if col is not None:
+					cd.deleteCol(col)
+				continue
+			if col is None:
+				cd.appendCol([''] * cd.numRows)
+				col = cd.numCols - 1
+				cd[rowIdx['column'], col] = name
+			for prop, v in vals.items():
+				if prop in rowIdx:
+					cd[rowIdx[prop], col] = str(v)
+
+	def _hasCallback(self, name):
+		try:
+			dat = self.ownerComp.par.Callbackdat.eval()
+			return dat is not None and getattr(dat.module, name, None) is not None
+		except Exception:
+			return False
 
 	def _callback(self, name, info):
 		"""Lister-style user callbacks: resolve the Callbackdat par to a
@@ -757,6 +938,10 @@ class TableEditorExt:
 				 'redo': [(a['r'], a['c'], a['v']) for a in applied]})
 			self.rev += 1
 			self._broadcast({'t': 'delta', 'rev': self.rev, 'edits': applied})
+			# expr-bearing UI columns may depend on the edited cells
+			defs = self._uiColsSpec()
+			if any(d['expr'] for d in defs):
+				self._broadcast({'t': 'uivals', 'vals': self._uiVals(defs)})
 			self._callback('onEdit', {'edits': applied, 'prev': old})
 
 	# Structural ops transform the snapshot in Python and rewrite the DAT

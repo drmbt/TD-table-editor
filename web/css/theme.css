@@ -163,6 +163,65 @@ body {
 
 .cellthumb { display: block; max-width: 100%; object-fit: contain; }
 
+.hcell.virt { color: var(--accent); font-style: italic; }
+
+#colwizard {
+  position: absolute;
+  top: 40px;
+  right: 16px;
+  z-index: 30;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font: var(--font);
+  color: var(--text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+#colwizard .wizttl { font-weight: bold; color: var(--accent); }
+
+#colwizard label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+#colwizard label.wizrow { flex-direction: row; align-items: center; gap: 6px; }
+
+#colwizard input[type="text"], #colwizard input:not([type]),
+#colwizard select {
+  background: var(--cell);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: var(--font);
+  padding: 3px 6px;
+  outline: none;
+}
+
+#colwizard input:focus, #colwizard select:focus { border-color: var(--accent); }
+
+#colwizard .wizbtns { display: flex; gap: 8px; justify-content: flex-end; }
+
+#colwizard .wizbtns button {
+  background: var(--header-bg);
+  border: 1px solid var(--grid-line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: var(--font);
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+#colwizard .wizbtns button:hover { border-color: var(--accent); color: var(--accent); }
+
 #toolbar button {
   background: var(--header-bg);
   border: 1px solid var(--grid-line);

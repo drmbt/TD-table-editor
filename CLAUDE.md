@@ -51,12 +51,24 @@ WS protocol — client→TD: `{t:hello}` `{t:edit,edits:[{r,c,v}]}`
 ext.Refresh) `{t:openpars}` (toolbar ⚙ → comp.openParameters())
 `{t:cursor,name}` (in-TD only, gated on `window.__inTD` from the kick
 JS: CSS cursor under the pointer → `_CURSOR_MAP` → container `cursor`
-par — offscreen CEF can't change the OS cursor) `{t:button,r,c}`
-(button-format cell clicked → onButtonClick callback, full row incl.
-hidden cols). Column formats (text/checkbox/button/thumb) and hidden
-columns are view state (localStorage `:fmt`/`:hide`, follow column
-drag-reorder); `thumb` cells load `/thumb?src=<TOP path or image
-file>` from webserver_callbacks (TOP → saveByteArray png, max-age=2).
+par — offscreen CEF can't change the OS cursor) `{t:button,r,c,col}`
+(button cell clicked; c=-1 + col=name for virtual columns →
+onClick<Name> if defined in the callbacks DAT, else onButtonClick —
+info carries row/col/column/cells/cellsByName) `{t:setcoldef,defs}`
+(page menus + the in-page "Column settings…" wizard write the
+colDefine; an entry without `set` deletes). colDefine (comp tableDAT,
+`Coldefine` OP par, property rows column/label/source/mode/expr/icon/
+visible/width/editable): entries with `source` (table column NAME)
+override that column's look; entries without are VIRTUAL columns
+appended after the table columns — `expr` evaluates per data row
+TD-SIDE (`cells` dict by column name, `row`, `op`, `me`) for
+thumb/eval content, `uicols`+`uivals` ride the table broadcast,
+{t:uivals} refreshes after deltas. Virtual cells never select/edit;
+wire coordinates stay DAT coordinates. colDefine wins over the
+localStorage view state (`:fmt`/`:hide`, zero-config fallback);
+"Save view as config" graduates localStorage → colDefine. `thumb`
+cells and button icons load `/thumb?src=<TOP path or image file>`
+from webserver_callbacks (TOP → saveByteArray png, max-age=2).
 NEVER `urllib.urlopen` TD's own webserver from TD python — the
 request handler needs the main thread the call is blocking
 (deadlock, frozen UI; verified the hard way). Use curl from outside;

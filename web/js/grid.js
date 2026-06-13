@@ -35,6 +35,14 @@ const Grid = (() => {
   let colHide = {};        // hidden columns ({c:true}, persisted) — view only:
                            // the DATA stays in the DAT; sel_rows and callbacks
                            // carry full rows (hidden target/meta columns)
+  // colDefine (comp DAT, project-portable) — wins over the localStorage
+  // view state above when entries exist. srcOver styles DAT-backed
+  // columns; uiDefs are VIRTUAL columns appended after the table columns
+  // (button/thumb/eval content, never selectable/editable).
+  let srcOver = {};        // datCol -> def
+  let uiDefs = [];         // virtual column defs (in order)
+  let uiVals = {};         // {defName: [val per DAT row]} (expr results)
+  let vW = [];             // virtual column widths (session-only)
   let eW = [];             // effective widths: base + leftover into fillIdx
   let fillIdx = -1;        // content-richest column absorbs spare viewport width
   let sortCol = -1;
@@ -147,13 +155,19 @@ const Grid = (() => {
     colheadInner.textContent = '';
     if (!T) return;
     const frag = document.createDocumentFragment();
-    for (let c = 0; c < numCols(); c++) {
-      if (colHide[c]) continue;
+    for (let c = 0; c < totCols(); c++) {
+      if (effHide(c)) continue;
       const h = document.createElement('div');
-      h.className = 'hcell';
+      h.className = 'hcell' + (isVirt(c) ? ' virt' : '');
       h.style.width = eW[c] + 'px';
       h.dataset.c = c;
-      h.textContent = T.headerRow ? (val(0, c) || colLetter(c)) : colLetter(c);
+      if (isVirt(c)) {
+        h.textContent = vDef(c) ? vDef(c).label : '';
+      } else if (srcOver[c] && srcOver[c].label !== colName(c)) {
+        h.textContent = srcOver[c].label;
+      } else {
+        h.textContent = T.headerRow ? (val(0, c) || colLetter(c)) : colLetter(c);
+      }
       if (sortDir !== 0 && c === sortCol) {
         const m = document.createElement('span');
         m.className = 'sortmark';
@@ -201,35 +215,53 @@ const Grid = (() => {
       const row = document.createElement('div');
       row.className = 'vrow' + (vr % 2 ? ' alt' : '');
       row.style.top = (vr * ROWH) + 'px';
-      for (let c = 0; c < numCols(); c++) {
-        if (colHide[c]) continue;
+      for (let c = 0; c < totCols(); c++) {
+        if (effHide(c)) continue;
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.style.width = eW[c] + 'px';
         cell.dataset.vr = vr;
         cell.dataset.c = c;
-        if (colFmt[c] === 'checkbox') {
-          cell.textContent = checkboxOn(val(r, c)) ? '☑' : '☐';
+        const fmt = effFmt(c);
+        const def = isVirt(c) ? vDef(c) : srcOver[c];
+        // cell content source: DAT value, or for virtual/expr columns the
+        // TD-evaluated expr result shipped in uivals
+        const content = def && def.expr
+          ? ((uiVals[def.name] || [])[r] || '')
+          : (isVirt(c) ? '' : val(r, c));
+        if (fmt === 'checkbox') {
+          cell.textContent = checkboxOn(content) ? '☑' : '☐';
           cell.classList.add('fmt-checkbox');
-        } else if (colFmt[c] === 'button') {
+        } else if (fmt === 'button') {
           const b = document.createElement('div');
           b.className = 'cellbtn';
-          b.textContent = val(r, c);
+          if (def && def.icon) {
+            const img = document.createElement('img');
+            img.className = 'cellthumb';
+            img.src = 'thumb?src=' + encodeURIComponent(def.icon);
+            img.style.height = (ROWH - 8) + 'px';
+            img.addEventListener('error', () => {
+              b.textContent = isVirt(c) ? def.label : content;
+            }, { once: true });
+            b.appendChild(img);
+          } else {
+            b.textContent = isVirt(c) && def ? def.label : content;
+          }
           cell.classList.add('fmt-button');
           cell.appendChild(b);
-        } else if (colFmt[c] === 'thumb' && val(r, c)) {
+        } else if (fmt === 'thumb' && content) {
           const img = document.createElement('img');
           img.className = 'cellthumb';
-          img.src = 'thumb?src=' + encodeURIComponent(val(r, c));
+          img.src = 'thumb?src=' + encodeURIComponent(content);
           img.style.height = (ROWH - 4) + 'px';
           // no endpoint (mock) or bad path: fall back to the raw text
           img.addEventListener('error', () => {
-            cell.textContent = val(r, c);
+            cell.textContent = content;
           }, { once: true });
           cell.classList.add('fmt-thumb');
           cell.appendChild(img);
         } else {
-          cell.textContent = val(r, c);
+          cell.textContent = content;
         }
         if (inAny(vr, c)) cell.classList.add('sel');
         // row selections (gutter) read as rows — no active-cell outline
@@ -339,14 +371,15 @@ const Grid = (() => {
   }
 
   function updateEff() {
-    eW = colW.slice();
+    eW = colW.slice().concat(vW);    // DAT columns then virtual columns
     if (!eW.length || !body) return;
-    for (let c = 0; c < eW.length; c++) { if (colHide[c]) eW[c] = 0; }
+    for (let c = 0; c < eW.length; c++) { if (effHide(c)) eW[c] = 0; }
     const leftover = body.clientWidth - eW.reduce((a, b) => a + b, 0);
     if (leftover > 0) {
-      let f = fillIdx >= 0 && fillIdx < eW.length && !colHide[fillIdx]
+      // spare width goes to a visible DAT column, never a virtual one
+      let f = fillIdx >= 0 && fillIdx < numCols() && !effHide(fillIdx)
         ? fillIdx : -1;
-      if (f < 0) f = nextVisCol(eW.length - 1, -1);
+      if (f < 0) f = nextVisCol(numCols() - 1, -1);
       if (f >= 0) eW[f] += leftover;
     }
   }
@@ -391,13 +424,43 @@ const Grid = (() => {
     colHide = remap(colHide);
   }
 
-  const hiddenCount = () =>
-    Object.keys(colHide).filter((c) => colHide[c] && c < numCols()).length;
+  // ---- effective column properties: colDefine entry > localStorage ------
 
-  // next visible column from c moving dir (skips hidden); -1 if none
+  const totCols = () => numCols() + uiDefs.length;
+  const isVirt = (c) => c >= numCols();
+  const vDef = (c) => uiDefs[c - numCols()];
+  const colName = (c) =>
+    (T && T.headerRow ? val(0, c) : 'c' + c) || 'c' + c;
+  const configured = () => uiDefs.length > 0 || Object.keys(srcOver).length > 0;
+
+  function effFmt(c) {
+    if (isVirt(c)) return vDef(c) ? vDef(c).mode : 'text';
+    if (srcOver[c]) return srcOver[c].mode || 'text';
+    return colFmt[c] || 'text';
+  }
+
+  function effHide(c) {
+    if (isVirt(c)) return vDef(c) ? !vDef(c).visible : false;
+    if (srcOver[c]) return !srcOver[c].visible;
+    return !!colHide[c];
+  }
+
+  function effEditable(c) {
+    if (isVirt(c)) return false;
+    if (srcOver[c]) return srcOver[c].editable;
+    return true;
+  }
+
+  const hiddenCount = () => {
+    let n = 0;
+    for (let c = 0; c < numCols(); c++) { if (effHide(c)) n++; }
+    return n;
+  };
+
+  // next visible DAT column from c moving dir (skips hidden); -1 if none
   function nextVisCol(c, dir) {
     for (let i = c; i >= 0 && i < numCols(); i += dir) {
-      if (!colHide[i]) return i;
+      if (!effHide(i)) return i;
     }
     return -1;
   }
@@ -426,14 +489,38 @@ const Grid = (() => {
       btn.classList.add('pressed');
       setTimeout(() => btn.classList.remove('pressed'), 120);
     }
-    log(`button r${r} c${c} "${val(r, c)}"`);
-    if (cbs.button) cbs.button(r, c);
+    const name = isVirt(c) ? (vDef(c) ? vDef(c).name : '') : '';
+    log(`button r${r} ${name ? '"' + name + '"' : 'c' + c}`);
+    if (cbs.button) cbs.button(r, isVirt(c) ? -1 : c, name);
+  }
+
+  // colDefine spec from the ext: split into DAT-column overrides and
+  // virtual columns; virtual widths come from the def (session resize ok)
+  function applyUiCols(defs, vals) {
+    srcOver = {};
+    uiDefs = [];
+    for (const d of defs) {
+      if (d.src >= 0) srcOver[d.src] = d;
+      else uiDefs.push(d);
+    }
+    vW = uiDefs.map((d) => {
+      const w = parseInt(d.width, 10);
+      return Number.isFinite(w) && w > 0 ? Math.max(MINW, w) : DEFW;
+    });
+    uiVals = vals || {};
+  }
+
+  // fresh expr results after a delta ({t:uivals})
+  function setUiVals(vals) {
+    uiVals = vals || {};
+    render();
   }
 
   function setTable(t) {
     const samePath = T && T.path === t.path;
     cancelEdit();
     T = t;
+    applyUiCols(t.uicols || [], t.uivals || {});
     if (!samePath) loadFmt();
     if (!samePath || colW.length !== numCols()) {
       loadColW();
@@ -551,7 +638,7 @@ const Grid = (() => {
   function setAnchor(vr, c, extend) {
     vr = Math.max(0, Math.min(vr, viewRows.length - 1));
     c = Math.max(0, Math.min(c, numCols() - 1));
-    if (colHide[c]) {                 // never anchor on a hidden column
+    if (effHide(c)) {                 // never anchor on a hidden column
       const t = nextVisCol(c, -1);
       c = t >= 0 ? t : nextVisCol(c, 1);
       if (c < 0) return;
@@ -591,6 +678,7 @@ const Grid = (() => {
 
   function startEdit(vr, c, initial) {
     if (!T || !T.editable || vr < 0 || vr >= viewRows.length) return;
+    if (isVirt(c) || !effEditable(c)) return;
     if (editing && editing.vr === vr && editing.c === c) return;
     cancelEdit();
     editing = { vr, c };
@@ -725,7 +813,7 @@ const Grid = (() => {
     for (const s of allRects()) {
       for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
         for (let c = s.c0; c <= s.c1; c++) {
-          if (colHide[c]) continue;        // never blind-clear hidden data
+          if (effHide(c)) continue;        // never blind-clear hidden data
           const key = datR(vr) + ':' + c;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -766,7 +854,7 @@ const Grid = (() => {
     // copy the active rect only (multi-area block copy is ill-defined).
     if (rects.length > 1 && rects.every(fullWidth)) {
       return selDatRows()
-        .map((dr) => T.cells[dr].filter((_, c) => !colHide[c]).join('\t'))
+        .map((dr) => T.cells[dr].filter((_, c) => !effHide(c)).join('\t'))
         .join('\n');
     }
     const s = normSel() || rects[rects.length - 1];
@@ -774,7 +862,7 @@ const Grid = (() => {
     for (let vr = s.r0; vr <= Math.min(s.r1, viewRows.length - 1); vr++) {
       const cells = [];
       for (let c = s.c0; c <= s.c1; c++) {
-        if (!colHide[c]) cells.push(val(datR(vr), c));
+        if (!effHide(c)) cells.push(val(datR(vr), c));
       }
       lines.push(cells.join('\t'));
     }
@@ -793,7 +881,7 @@ const Grid = (() => {
         && (s.r1 > s.r0 || s.c1 > s.c0)) {
       for (let vr = s.r0; vr <= s.r1; vr++) {
         for (let c = s.c0; c <= s.c1; c++) {
-          if (colHide[c]) continue;
+          if (effHide(c)) continue;
           edits.push({ r: datR(vr), c, v: rows[0][0] });
         }
       }
@@ -833,7 +921,7 @@ const Grid = (() => {
       // columns are never silently overwritten by a block paste
       const visCols = [];
       for (let c = s.c0; c < numCols(); c++) {
-        if (!colHide[c]) visCols.push(c);
+        if (!effHide(c)) visCols.push(c);
       }
       for (let i = 0; i < rows.length; i++) {
         const vr = s.r0 + i;
@@ -904,7 +992,7 @@ const Grid = (() => {
     } else if (meta && (k === 'd' || k === 'D')) {
       duplicateRows();
       e.preventDefault();
-    } else if (k === ' ' && sel && colFmt[sel.ac] === 'checkbox') {
+    } else if (k === ' ' && sel && effFmt(sel.ac) === 'checkbox') {
       toggleCheckbox(sel.ar, sel.ac);
       e.preventDefault();
     }
@@ -1170,13 +1258,19 @@ const Grid = (() => {
       if (e.button !== 0) return;
       const mods = evMods(e);
       const multi = (mods.ctrl || mods.meta) && !mods.shift;
-      if (colFmt[hit.c] === 'checkbox' && T.editable && !mods.shift && !multi) {
+      if (isVirt(hit.c)) {
+        // virtual cells never select or edit; buttons fire their callback
+        if (effFmt(hit.c) === 'button') pressButton(hit.vr, hit.c, e.target);
+        return;
+      }
+      if (effFmt(hit.c) === 'checkbox' && T.editable && effEditable(hit.c)
+          && !mods.shift && !multi) {
         // checkbox cells toggle on a plain click — no edit mode
         setAnchor(hit.vr, hit.c, false);
         toggleCheckbox(hit.vr, hit.c);
         return;
       }
-      if (colFmt[hit.c] === 'button' && !mods.shift && !multi) {
+      if (effFmt(hit.c) === 'button' && !mods.shift && !multi) {
         // button cells fire the onButtonClick callback — no selection
         // change, no edit; works on read-only tables (buttons read)
         pressButton(hit.vr, hit.c, e.target);
@@ -1202,6 +1296,7 @@ const Grid = (() => {
       capture(body, e);
       const onMove = (ev) => {
         const h = cellFromEvent(ev);
+        if (h) h.c = Math.min(h.c, numCols() - 1);   // never into virtuals
         if (h && sel && (h.vr !== sel.er || h.c !== sel.ec)) {
           sel.er = h.vr;
           sel.ec = h.c;
@@ -1220,7 +1315,8 @@ const Grid = (() => {
     body.addEventListener('dblclick', (e) => {
       const hit = cellFromEvent(e);
       // checkbox toggles and buttons fire on single click — no editor
-      if (hit && (colFmt[hit.c] === 'checkbox' || colFmt[hit.c] === 'button')) return;
+      if (hit && (effFmt(hit.c) === 'checkbox' || effFmt(hit.c) === 'button'
+          || isVirt(hit.c))) return;
       if (hit) startEdit(hit.vr, hit.c);
     });
 
@@ -1353,6 +1449,111 @@ const Grid = (() => {
     render();
   }
 
+  // write a property change for a DAT-backed column into the colDefine
+  // (creates the entry on first touch — the menu IS the config editor)
+  function setSrcDef(c, set) {
+    if (!cbs.setColDef) return;
+    const name = srcOver[c] ? srcOver[c].name : colName(c);
+    cbs.setColDef([{ column: name, set: { source: colName(c), ...set } }]);
+  }
+
+  // graduate the ad-hoc localStorage view (formats/hidden/widths) into a
+  // project-portable colDefine — one entry per DAT column
+  function saveViewAsConfig() {
+    if (!cbs.setColDef || !T) return;
+    const defs = [];
+    for (let c = 0; c < numCols(); c++) {
+      defs.push({ column: colName(c), set: {
+        source: colName(c),
+        mode: colFmt[c] || 'text',
+        visible: colHide[c] ? 0 : 1,
+        width: Math.round(colW[c] || 0) || '',
+      } });
+    }
+    cbs.setColDef(defs);
+    log('saved view as colDefine config');
+  }
+
+  // "Column settings…" wizard: in-page form that edits one colDefine
+  // entry — no docs trip. c = DAT column, virtual column, or -1 (new).
+  let wizEl = null;
+  function colSettings(c) {
+    closeWiz();
+    const isNew = c < 0;
+    const d = isNew ? null : (isVirt(c) ? vDef(c) : srcOver[c]);
+    const cur = {
+      column: d ? d.name : (isNew ? '' : colName(c)),
+      label: d ? d.label : (isNew ? '' : colName(c)),
+      source: !isNew && !isVirt(c) ? colName(c)
+        : (d && d.src >= 0 ? colName(d.src) : ''),
+      mode: d ? d.mode : (isNew ? 'button' : effFmt(c)),
+      expr: d ? d.expr : '',
+      icon: d ? d.icon : '',
+      visible: d ? d.visible : !(!isNew && colHide[c]),
+      editable: d ? d.editable : true,
+      width: d && d.width ? d.width : '',
+    };
+    wizEl = document.createElement('div');
+    wizEl.id = 'colwizard';
+    const srcOpts = ['<option value="">(none — UI-only column)</option>'];
+    for (let i = 0; i < numCols(); i++) {
+      const n = colName(i);
+      srcOpts.push(`<option value="${n}"${n === cur.source ? ' selected' : ''}>${n}</option>`);
+    }
+    const modeOpts = ['text', 'checkbox', 'button', 'thumb', 'eval']
+      .map((m) => `<option value="${m}"${m === cur.mode ? ' selected' : ''}>${m}</option>`);
+    wizEl.innerHTML = `
+      <div class="wizttl">${isNew ? 'Add UI column' : 'Column settings'}</div>
+      <label>Column name <input id="wz-column" value="${cur.column}"></label>
+      <label>Label <input id="wz-label" value="${cur.label}"></label>
+      <label>Source column <select id="wz-source">${srcOpts.join('')}</select></label>
+      <label>Format <select id="wz-mode">${modeOpts.join('')}</select></label>
+      <label>Expression <input id="wz-expr" value="${cur.expr.replace(/"/g, '&quot;')}"
+        placeholder="f&quot;{cells['path']}/out1&quot; — python, per row"></label>
+      <label>Button icon <input id="wz-icon" value="${cur.icon}"
+        placeholder="TOP path or image file"></label>
+      <label>Width <input id="wz-width" value="${cur.width}" placeholder="auto"></label>
+      <label class="wizrow"><input type="checkbox" id="wz-visible"${cur.visible ? ' checked' : ''}> visible</label>
+      <label class="wizrow"><input type="checkbox" id="wz-editable"${cur.editable ? ' checked' : ''}> editable</label>
+      <div class="wizbtns">
+        <button id="wz-save">Save</button>
+        <button id="wz-cancel">Cancel</button>
+      </div>`;
+    el.appendChild(wizEl);
+    const save = () => {
+      const name = wizEl.querySelector('#wz-column').value.trim();
+      if (!name) { closeWiz(); return; }
+      const set = {
+        label: wizEl.querySelector('#wz-label').value.trim(),
+        source: wizEl.querySelector('#wz-source').value,
+        mode: wizEl.querySelector('#wz-mode').value,
+        expr: wizEl.querySelector('#wz-expr').value.trim(),
+        icon: wizEl.querySelector('#wz-icon').value.trim(),
+        width: wizEl.querySelector('#wz-width').value.trim(),
+        visible: wizEl.querySelector('#wz-visible').checked ? 1 : 0,
+        editable: wizEl.querySelector('#wz-editable').checked ? 1 : 0,
+      };
+      const defs = [{ column: name, set }];
+      if (d && d.name !== name) defs.unshift({ column: d.name });   // rename
+      if (cbs.setColDef) cbs.setColDef(defs);
+      closeWiz();
+    };
+    wizEl.querySelector('#wz-save').addEventListener('click', save);
+    wizEl.querySelector('#wz-cancel').addEventListener('click', closeWiz);
+    wizEl.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); closeWiz(); }
+    });
+    wizEl.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    wizEl.querySelector('#wz-column').focus();
+  }
+
+  function closeWiz() {
+    if (wizEl) { wizEl.remove(); wizEl = null; }
+    clip.focus({ preventScroll: true });
+  }
+
   // header right-click rename: inline input over the header cell, commits
   // a plain {r:0,c} edit (header row is DAT row 0)
   let headEdit = null;
@@ -1435,6 +1636,18 @@ const Grid = (() => {
       e.preventDefault();
       clip.focus({ preventScroll: true });
       const c = +h.dataset.c;
+      if (isVirt(c)) {
+        if (e.button === 2) {
+          showCtx(e.clientX, e.clientY, [
+            { label: 'Column settings…', fn: () => colSettings(c) },
+            { label: 'Delete UI column', fn: () => {
+              const d = vDef(c);
+              if (d && cbs.setColDef) cbs.setColDef([{ column: d.name }]);
+            } },
+          ]);
+        }
+        return;   // virtual headers don't sort or drag-reorder
+      }
       if (e.button === 2) {
         const ro = !T || !T.editable;
         showCtx(e.clientX, e.clientY, [
@@ -1451,28 +1664,49 @@ const Grid = (() => {
             fn: () => selectColumn(c) },
           '-',
           ...['text', 'checkbox', 'button', 'thumb'].map((f) => ({
-            label: ((colFmt[c] || 'text') === f ? '✓ ' : ' ')
+            label: (effFmt(c) === f ? '✓ ' : ' ')
               + 'Format: ' + (f === 'thumb' ? 'thumbnail' : f),
             fn: () => {
-              if (f === 'text') delete colFmt[c]; else colFmt[c] = f;
-              saveFmt();
-              render();
+              if (configured() || srcOver[c]) {
+                setSrcDef(c, { mode: f });
+              } else {
+                if (f === 'text') delete colFmt[c]; else colFmt[c] = f;
+                saveFmt();
+                render();
+              }
             },
           })),
+          { label: 'Column settings…', fn: () => colSettings(c) },
+          { label: 'Add UI column…', fn: () => colSettings(-1) },
           '-',
           { label: 'Hide column', disabled: hiddenCount() >= numCols() - 1,
             fn: () => {
-              colHide[c] = true;
-              saveFmt();
-              renderAll();
+              if (configured() || srcOver[c]) {
+                setSrcDef(c, { visible: 0 });
+              } else {
+                colHide[c] = true;
+                saveFmt();
+                renderAll();
+              }
             } },
           { label: `Show ${hiddenCount()} hidden column${hiddenCount() > 1 ? 's' : ''}`,
             disabled: !hiddenCount(),
             fn: () => {
               colHide = {};
               saveFmt();
+              if (configured() && cbs.setColDef) {
+                const defs = [];
+                for (let i = 0; i < numCols(); i++) {
+                  if (srcOver[i] && !srcOver[i].visible) {
+                    defs.push({ column: srcOver[i].name, set: { visible: 1 } });
+                  }
+                }
+                if (defs.length) cbs.setColDef(defs);
+              }
               renderAll();
             } },
+          { label: 'Save view as config', disabled: configured(),
+            fn: saveViewAsConfig },
           '-',
           { label: 'Insert column left', disabled: ro, fn: () => structOp(() => cbs.insertCols(c, 1), 'insert column') },
           { label: 'Insert column right', disabled: ro, fn: () => structOp(() => cbs.insertCols(c + 1, 1), 'insert column') },
@@ -1616,5 +1850,5 @@ const Grid = (() => {
   }
 
   return { init, setTable, applyEdits, setFilter, dims, setStyle,
-    appendRow, appendCol, applySortToDAT };
+    appendRow, appendCol, applySortToDAT, setUiVals };
 })();

@@ -84,7 +84,8 @@
     },
     log: logAction,
     cursor: (name) => Bridge.send({ t: 'cursor', name }),
-    button: (r, c) => Bridge.send({ t: 'button', r, c }),
+    button: (r, c, col) => Bridge.send({ t: 'button', r, c, col: col || '' }),
+    setColDef: (defs) => Bridge.send({ t: 'setcoldef', defs }),
   });
 
   Bridge.init({
@@ -105,6 +106,8 @@
         Grid.setTable(msg);
       } else if (msg.t === 'delta') {
         Grid.applyEdits(msg.edits || []);
+      } else if (msg.t === 'uivals') {
+        Grid.setUiVals(msg.vals || {});
       } else if (msg.t === 'clip') {
         const w = clipWaiters.splice(0, clipWaiters.length);
         w.forEach((cb) => cb(msg.text || ''));

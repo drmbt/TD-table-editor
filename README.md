@@ -150,9 +150,13 @@ Client → TD:
                                            // the pointer -> container COMP
                                            // cursor par (offscreen CEF
                                            // can't change the OS cursor)
-{"t":"button", "r":3, "c":1}               // button-format cell clicked ->
-                                           // onButtonClick callback with the
-                                           // full row (hidden cols included)
+{"t":"button", "r":3, "c":1, "col":"play"} // button cell clicked (c=-1 for
+                                           // virtual columns, col = UI column
+                                           // name) -> onClick<Name> or
+                                           // onButtonClick with the full row
+{"t":"setcoldef", "defs":[                 // page menus / column-settings
+  {"column":"play", "set":{"mode":"button"}},  // wizard write the colDefine
+  {"column":"old"}]}                       // entry without "set" = delete
 ```
 
 TD → client:
@@ -160,8 +164,12 @@ TD → client:
 ```jsonc
 {"t":"table", "rev":7, "path":"/project1/table1", "name":"table1",
  "editable":true, "headerRow":true, "style":{"bg":"#16181c", "rowh":26},
+ "uicols":[{"name":"play","label":"▶","src":-1,"mode":"button", // colDefine
+   "expr":"","icon":"/ui/play","visible":true,"width":"46","editable":false}],
+ "uivals":{"thumbcol":["","/comp/movie1",""]},   // expr results per DAT row
  "cells":[["name","dur"],["intro","30"]]}
 {"t":"delta", "rev":8, "edits":[{"r":1,"c":1,"v":"45"}]}
+{"t":"uivals", "vals":{"thumbcol":["","/comp/movie2",""]}}  // after deltas
 {"t":"style", "style":{"accent":"#b45fff", "fontsize":13}}  // live restyle
 {"t":"clip", "text":"a\tb"}                // reply to {t:"getclip"}
 {"t":"reload"}                             // Reloadclients pulse: pages reload

@@ -51,11 +51,38 @@ const Bridge = (() => {
     cells: mockCells(),
   };
 
+  // colDefine entries ({column: {props}}, insertion-ordered) — the mock
+  // applies setcoldef and resolves uicols like the ext (no python: expr
+  // columns evaluate to '')
+  const MOCKDEF = new Map();
+
+  function mockUiCols() {
+    const names = MOCK.headerRow && MOCK.cells.length
+      ? MOCK.cells[0].map(String)
+      : (MOCK.cells[0] || []).map((_, i) => 'c' + i);
+    const defs = [];
+    for (const [name, p] of MOCKDEF) {
+      defs.push({
+        name,
+        label: (p.label || '*') === '*' ? name : p.label,
+        src: names.indexOf(p.source || ''),
+        mode: p.mode || 'text',
+        expr: p.expr || '',
+        icon: p.icon || '',
+        visible: String(p.visible ?? '1') !== '0',
+        width: p.width || '',
+        editable: String(p.editable ?? '1') !== '0',
+      });
+    }
+    return defs;
+  }
+
   function mockTableMsg() {
     MOCK.rev += 1;
     return {
       t: 'table', rev: MOCK.rev, path: MOCK.path, name: MOCK.name,
       editable: MOCK.editable, headerRow: MOCK.headerRow,
+      uicols: mockUiCols(), uivals: {},
       cells: MOCK.cells.map((r) => r.slice()),
     };
   }
@@ -68,6 +95,13 @@ const Bridge = (() => {
     const cells = MOCK.cells;
     const ncols = cells[0] ? cells[0].length : 0;
     if (msg.t === 'hello') {
+      later(mockTableMsg());
+    } else if (msg.t === 'setcoldef') {
+      for (const e of msg.defs || []) {
+        if (!e.column) continue;
+        if (e.set === undefined || e.set === null) MOCKDEF.delete(e.column);
+        else MOCKDEF.set(e.column, Object.assign(MOCKDEF.get(e.column) || {}, e.set));
+      }
       later(mockTableMsg());
     } else if (msg.t === 'edit') {
       const applied = [];

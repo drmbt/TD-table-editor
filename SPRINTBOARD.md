@@ -222,7 +222,38 @@ or selected row (Vincent's media-asset workflow).
       verified live after relaunch: TOP path → 200 image/png (real
       900×429 render), disk jpg → 200 image/jpeg, bad src → 404
 
-### M7 — Workflow & persistence
+### M7 — colDefine: configured UI columns  ✓ DONE 2026-06-12 (sessions 1r)
+One mechanism for Vincent's three asks: UI columns decoupled from
+table columns, configured in a `colDefine` table DAT on the comp
+(file-syncable = project-portable) — but edited through the page UI,
+never by hand unless wanted.
+- [x] colDefine DAT + `Coldefine` OP par (default ./colDefine,
+      auto-created with property rows: column/label/source/mode/expr/
+      icon/visible/width/editable). Entries with `source` (a table
+      column NAME) override that column's look; entries without are
+      VIRTUAL columns appended after the table columns (v1: at the
+      end, reorder later)
+- [x] Ext parses + resolves: `uicols` spec rides the table broadcast;
+      `expr` (python, per row, TD-side: `cells` dict by column name,
+      `row`) evaluates to thumb sources / display text; per-column
+      button `icon` resolves through /thumb. Fresh {t:uivals} after
+      deltas when expr columns exist
+- [x] Page renders virtual columns (button/thumb/eval modes) and
+      applies source-column overrides; virtual cells are excluded
+      from selection/edit/copy/paste/sort (wire coordinates stay DAT
+      coordinates); colDefine overrides win over localStorage view
+      state, which remains the zero-config fallback
+- [x] onButtonClick info gains `column` (UI column name) +
+      `cellsByName`; Lister-style named callbacks (`onClickPlay`
+      beats generic onButtonClick when defined)
+- [x] No-docs configuration: header-menu format/hide writes colDefine
+      via {t:setcoldef} when one is active; "Column settings…" opens
+      an in-page panel (label/source/mode/expr/icon/visible/width);
+      "Add UI column…" creates virtual button/thumb columns;
+      "Save view as config" graduates an ad-hoc localStorage setup
+      into the colDefine
+
+### M8 — Workflow & persistence
 - [ ] ctrl.t workflow documented + helper: `ext.Open(path)` retargets and
       pops window; example keyboardin macro snippet for Vincent's setup
 - [ ] Follow-selection mode: editor retargets to the currently selected
@@ -244,6 +275,37 @@ or selected row (Vincent's media-asset workflow).
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-12 — Session 1r (M7: colDefine — configured UI columns + wizard)
+- The Lister colDefine model, configured from the page (no docs trip):
+  comp gains a `colDefine` tableDAT (+ `Coldefine` OP par; property
+  rows seeded idempotently — heals an empty DAT, not just a missing
+  one, after the first init raced the module reload). Entries with
+  `source` override a table column's look (mode/label/visible/width/
+  editable); entries without are VIRTUAL columns appended after the
+  table columns.
+- Ext: `_uiColsSpec`/`_uiVals` (expr per data row, TD-side eval with
+  `cells` by-name dict, `row`, `op`, `me`), uicols+uivals on the table
+  broadcast, {t:uivals} after deltas, {t:setcoldef} writes entries
+  (no `set` = delete). {t:button} carries col=name for virtuals;
+  named `onClick<Name>` callbacks beat generic onButtonClick;
+  info gains column + cellsByName.
+- Page: virtual columns render after DAT columns (button label/icon,
+  thumb/eval from uivals); never selectable/editable — wire
+  coordinates stay DAT coordinates. effFmt/effHide/effEditable:
+  colDefine wins, localStorage stays the zero-config fallback. Header
+  menu writes colDefine when configured; "Column settings…" in-page
+  wizard edits any entry (label/source/mode/expr/icon/visible/width/
+  editable, rename-safe); "Add UI column…" creates virtuals; "Save
+  view as config" graduates localStorage state.
+- Verified mock (wizard→virtual play button→{t:button,col:'play'},
+  config-routed format/hide, prefilled settings, delete entry, clean
+  console) and live TD (colDefine seeded; expr
+  `'/path' if cells['Check Box']=='1' else ''` evaluated correctly by
+  NAME even after Vincent had moved/renamed columns — row 9 only;
+  virtual Preview thumb rendered alongside his own icon-column thumb;
+  entry delete via setcoldef). Vincent's table already carries
+  icon/button columns — the media-asset UI is being assembled live.
 
 ### 2026-06-12 — Session 1q (M6: hidden columns, button format, thumbnails — and a TD freeze)
 - **INCIDENT: TD froze mid-session, force-quit required.** Cause: I ran

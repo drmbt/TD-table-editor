@@ -917,23 +917,37 @@ class TableEditorExt:
 			if src and src not in bySource:
 				bySource[src] = e
 		used = set()
+		usedCols = set()
 		ordered = []
-		# 1) target columns, in target order: existing entry or a new default
+		# 1) target columns, in target order: existing entry (matched by
+		# source) or a new default — at most one entry per column name
 		for n in names:
-			if not n.strip():
-				continue        # unnamed table column — can't key by name
+			if not n.strip() or n in usedCols:
+				continue        # unnamed or already-added table column
 			e = bySource.get(n)
-			if e is not None and id(e) not in used:
+			ecol = e.get('column', '').strip() if e is not None else ''
+			if e is not None and id(e) not in used and ecol and ecol not in usedCols:
 				ordered.append(e)
 				used.add(id(e))
+				usedCols.add(ecol)
 			else:
 				ordered.append({'column': n, 'label': '', 'source': n,
 								'mode': 'text', 'expr': '', 'icon': '',
 								'visible': '1', 'width': '', 'editable': '1'})
-		# 2) accumulated (source not in target) + virtuals, original order kept
+				usedCols.add(n)
+		# 2) accumulated (source not in target) + virtuals — unique column
+		# names only; drop a duplicate override of a table column
 		for e in entries:
-			if id(e) not in used:
+			if id(e) in used:
+				continue
+			src = e.get('source', '').strip()
+			if src and src in names:
+				continue        # duplicate override of a table column
+			col = e.get('column', '').strip()
+			if col and col not in usedCols:
 				ordered.append(e)
+				used.add(id(e))
+				usedCols.add(col)
 		# rewrite entry columns in the computed order (keep property col 0)
 		while cd.numCols > 1:
 			cd.deleteCol(cd.numCols - 1)

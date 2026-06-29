@@ -217,7 +217,13 @@ same traps. See that repo's CLAUDE.md for the war stories.
   context menu. All menus/popovers must be in-page DOM.
 - `webrenderTOP par.reload.pulse()` is a **no-op** — use
   `executeJavaScript("location.reload()")`. webserver_callbacks sends
-  `Cache-Control: no-cache` so reloads pick up fresh js/css.
+  `Cache-Control: no-cache` AND stamps each js/css ref in the served HTML
+  with the file's mtime (`_stampAssets` → `src="js/grid.js?v=<mtime>"`)
+  — `no-cache` alone does NOT stop CEF's offscreen renderer from serving a
+  cached *subresource* across reloads (verified: only an `about:blank`
+  round-trip busted it); the changing `?v` does, so plain reloads now pick
+  up edits. The HTTP handler strips the `?v` query before resolving the
+  file path.
 - **syncfile cuts both ways: TD undo rolls a DAT back and syncfile writes
   the OLD text over the repo file.** Commit before risky TD-side sessions;
   `git restore` is the recovery.

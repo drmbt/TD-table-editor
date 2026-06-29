@@ -68,16 +68,24 @@ const Bridge = (() => {
     const names = mockColNames();
     if (!names.length) return;
     const bySource = new Map();
-    for (const [n, p] of MOCKDEF) { if (p.source) bySource.set(p.source, n); }
-    const ordered = new Map();
+    for (const [n, p] of MOCKDEF) {
+      const s = (p.source || '').trim();
+      if (s && !bySource.has(s)) bySource.set(s, n);
+    }
+    const ordered = new Map();   // keyed by column name -> unique columns
     for (const nm of names) {
+      if (!nm.trim() || ordered.has(nm)) continue;
       const en = bySource.get(nm);
-      if (en !== undefined) ordered.set(en, MOCKDEF.get(en));
-      else if (MOCKDEF.has(nm)) ordered.set(nm, MOCKDEF.get(nm));
+      if (en !== undefined && !ordered.has(en)) ordered.set(en, MOCKDEF.get(en));
       else ordered.set(nm, { source: nm, label: '', mode: 'text',
         visible: '1', width: '', editable: '1' });
     }
-    for (const [n, p] of MOCKDEF) { if (!ordered.has(n)) ordered.set(n, p); }
+    for (const [n, p] of MOCKDEF) {
+      if (ordered.has(n)) continue;
+      const s = (p.source || '').trim();
+      if (s && names.indexOf(s) >= 0) continue;   // duplicate override — drop
+      ordered.set(n, p);
+    }
     MOCKDEF.clear();
     for (const [n, p] of ordered) MOCKDEF.set(n, p);
   }

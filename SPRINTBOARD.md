@@ -342,6 +342,28 @@ existing comp DAT (file-syncable, travels with the comp), no specs/ files.
 
 ## Changelog
 
+### 2026-06-29 — Session 2f (CEF cache-bust + colDefine column dedup)
+- **CEF stale-cache fixed for good.** `Cache-Control: no-cache` alone did
+  NOT stop the offscreen renderer from serving a cached js/css subresource
+  across reloads (cost real friction twice — only an `about:blank` round-
+  trip busted it). webserver_callbacks now stamps each local js/css ref in
+  the served HTML with the file's mtime (`_stampAssets` →
+  `src="js/grid.js?v=<mtime>"`); the changing query makes CEF refetch after
+  a disk edit, so plain `location.reload()` / Reloadclients picks up edits.
+  The HTTP handler strips the `?v` query before resolving the file path
+  (and before the /thumb check; `_thumb` still reads the full request).
+  Verified live via curl: index.html serves stamped refs, `js/grid.js?v=…`
+  returns 200.
+- **colDefine column dedup (incl. UI columns).** `_syncColDef` (and the
+  mock's `mockSyncColDef`) now guarantee unique `column` names: a target
+  column matches an existing entry by `source`, else a fresh default; step
+  2 keeps accumulated/virtual entries only when their column name is unused
+  and drops a duplicate override of a table column. So a UI column added
+  twice, or a virtual whose name collides with a table column, never
+  duplicates (the table column wins). Verified mock (play×2 → 1, virtual
+  'duration' colliding with the table col → dropped) and live (colDefine
+  all-unique; path_dup_test×2 → 1).
+
 ### 2026-06-29 — Session 2e (M11: colDefine fully defines the target table)
 - colDefine now fully defines every column (not just virtuals): on target
   change / init / Resetconfig, `_syncColDef()` auto-populates a source-

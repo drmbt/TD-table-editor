@@ -6,11 +6,36 @@ WebSocket: relays open/close/text to the TableEditorExt extension.
 """
 
 import os
+import re
 import mimetypes
 
 
 def _ext(webServerDAT):
 	return webServerDAT.parent().ext.TableEditorExt
+
+
+# CEF's offscreen renderer heuristically caches js/css subresources even
+# with Cache-Control: no-cache, so a disk edit can keep serving stale code
+# across reloads (verified the hard way). Stamp each local js/css ref in the
+# served HTML with the asset's mtime so a changed file always busts the cache.
+_ASSET_RE = re.compile(r'(src|href)="((?:js|css)/[^"?]+)"')
+
+
+def _stampAssets(data, root):
+	try:
+		html = data.decode('utf-8')
+	except Exception:
+		return data
+
+	def repl(m):
+		attr, rel = m.group(1), m.group(2)
+		try:
+			v = int(os.path.getmtime(os.path.normpath(os.path.join(root, rel))))
+		except Exception:
+			return m.group(0)
+		return '%s="%s?v=%d"' % (attr, rel, v)
+
+	return _ASSET_RE.sub(repl, html).encode('utf-8')
 
 
 _IMG_EXT = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -62,7 +87,8 @@ def onHTTPRequest(webServerDAT, request, response):
 	uri = request['uri']
 	if uri in ('', '/'):
 		uri = '/index.html'
-	if uri.split('?')[0] == '/thumb':
+	uri = uri.split('?')[0]      # drop the cache-bust query before resolving
+	if uri == '/thumb':
 		return _thumb(webServerDAT, request, response)
 
 	root = os.path.normpath(root)
@@ -78,6 +104,10 @@ def onHTTPRequest(webServerDAT, request, response):
 	mime = mimetypes.guess_type(path)[0] or 'application/octet-stream'
 	with open(path, 'rb') as f:
 		data = f.read()
+
+	# stamp js/css refs in served HTML with their mtimes (CEF cache-bust)
+	if mime == 'text/html':
+		data = _stampAssets(data, root)
 
 	response['statusCode'] = 200
 	response['statusReason'] = 'OK'

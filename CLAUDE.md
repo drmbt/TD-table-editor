@@ -52,9 +52,14 @@ ext.Refresh) `{t:openpars}` (toolbar ⚙ → comp.openParameters())
 `{t:cursor,name}` (in-TD only, gated on `window.__inTD` from the kick
 JS: CSS cursor under the pointer → `_CURSOR_MAP` → container `cursor`
 par — offscreen CEF can't change the OS cursor) `{t:button,r,c,col}`
-(button cell clicked; c=-1 + col=name for virtual columns →
-onClick<Name> if defined in the callbacks DAT, else onButtonClick —
-info carries row/col/column/cells/cellsByName) `{t:setcoldef,defs}`
+(button-format cell OR any virtual UI column clicked — virtual columns
+are clickable by default; c=-1 + col=name for virtuals → dispatch
+precedence onClick<Name> → onButtonClick → onClick; info carries
+row/col/column/cells/cellsByName/target) `{t:click,r,c,col}` (universal
+Lister-style click on ANY non-button cell → onClick<Name> → onClick,
+alongside selection/edit, never replacing it). A virtual `delete` mode
+column renders an ✕ and ALSO sends `{t:deleterows}` for that row
+(TD-undoable; onClickDelete can hook it). `{t:setcoldef,defs}`
 (page menus + the in-page "Column settings…" wizard write the
 colDefine; an entry without `set` deletes). colDefine (comp tableDAT,
 `Coldefine` OP par, property rows column/label/source/mode/expr/icon/
@@ -74,7 +79,9 @@ request handler needs the main thread the call is blocking
 (deadlock, frozen UI; verified the hard way). Use curl from outside;
 TD→client: `{t:table,rev,path,name,editable,headerRow,style,cells:[[...]]}`
 `{t:delta,rev,edits:[{r,c,v}]}` `{t:style,style}` `{t:reload}`
-(Reloadclients pulse — stale-page recovery) `{t:error,msg}`.
+(Reloadclients pulse — stale-page recovery) `{t:resetview,path}`
+(Resetconfig pulse → ext clears the colDefine to its empty skeleton and
+clients drop saved view state, re-deriving auto config) `{t:error,msg}`.
 Style dict (comp Style page → CSS vars): bg panel cell cellalt grid
 header gutter text textdim accent highlight font fontsize rowh —
 selection/hover tints derive from `highlight` (--hl), not accent —
@@ -109,7 +116,12 @@ back). ctrl/cmd+d duplicates the selected rows (copies insert below
 the selection). The in-TD cell editor has full text editing —
 caret/word nav, shift-selection, ctrl+a, copy/cut/paste at the caret
 — via `__tdKey` routing (`editorTDKey`); browser inputs do this
-natively. Gutter row selections render without the active-cell
+natively. In-TD `__tdCopy`/`__tdCut`/`__tdPaste` and Tab also serve any
+other focused page input (`focusedInput()` — Column Settings dialog
+fields, filter, header rename): clipboard ops hit that input's
+selection/caret via ui.clipboard (NOT the grid), and Tab cycles the
+dialog's fields (`tabWithin`) instead of committing — so editing a
+dialog field never touches the table. Browsers do all this natively. Gutter row selections render without the active-cell
 outline (`sel.rowMode`). Reorder keeps the
 selection on the moved block. Shift+wheel scrolls horizontally in-TD
 (`__tdHWheel`; shift comes from the tracked `_mods` OR the panel
@@ -142,7 +154,10 @@ write path re-checks.
   apply with one `reinitextensions`. build_component creates bare DATs only.
 - Comp custom pars: Targetop (the table DAT), Headerrow (first row renders
   as the sticky header), Webroot, Port (9981), Refresh (pulse),
-  Openviewer (pulse → window1), Openinbrowser (pulse); Style page
+  Openviewer (pulse → window1), Openinbrowser (pulse), Reloadclients
+  (pulse), Resetconfig (pulse → ext.ResetConfig: clear colDefine + drop
+  saved view state → auto config), Displaylog, Callbackdat, Coldefine;
+  Style page
   (created by `_ensureSetup`): Bg/Panel/Cell/Cellalt/Grid/Header/Gutter/
   Text/Textdim/Accentcolor RGB, Fontfamily, Fontsize, Rowheight, Theme
   menu (custom/dark/light/synthwave presets write the color pars via

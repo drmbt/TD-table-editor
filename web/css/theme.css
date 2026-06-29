@@ -154,6 +154,13 @@ body {
 .cellbtn:hover { border-color: var(--accent); }
 .cellbtn.pressed { background: var(--hl); color: var(--text); }
 
+/* delete (✕) cell: a button cell tinted as a destructive action */
+.cellbtn.celldelete { color: var(--text-dim); font-weight: bold; }
+.cellbtn.celldelete:hover {
+  border-color: #e0556b;
+  color: #e0556b;
+}
+
 .cell.fmt-thumb {
   display: flex;
   align-items: center;
@@ -162,6 +169,9 @@ body {
 }
 
 .cellthumb { display: block; max-width: 100%; object-fit: contain; }
+/* virtual columns are clickable by default (thumb/text/eval included) */
+.cell.cell-clickable { cursor: pointer; }
+.cellthumb.pressed { opacity: 0.6; }
 
 .hcell.virt { color: var(--accent); font-style: italic; }
 
@@ -171,9 +181,11 @@ body {
   right: 16px;
   z-index: 30;
   width: 280px;
+  /* Stay inside the (possibly short) TD panel so the footer is never
+     cut off — the body scrolls instead. */
+  max-height: calc(100% - 56px);
   display: flex;
   flex-direction: column;
-  gap: 7px;
   padding: 12px;
   background: var(--panel);
   border: 1px solid var(--accent);
@@ -183,7 +195,39 @@ body {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 
+#colwizard .wizhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-bottom: 7px;
+}
+
 #colwizard .wizttl { font-weight: bold; color: var(--accent); }
+
+#colwizard .wizclose {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+#colwizard .wizclose:hover { color: var(--accent); }
+
+/* The fields scroll; header and buttons stay pinned. */
+#colwizard .wizbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 2px;
+}
 
 #colwizard label {
   display: flex;
@@ -208,7 +252,7 @@ body {
 
 #colwizard input:focus, #colwizard select:focus { border-color: var(--accent); }
 
-#colwizard .wizbtns { display: flex; gap: 8px; justify-content: flex-end; }
+#colwizard .wizbtns { display: flex; gap: 8px; justify-content: flex-end; flex: 0 0 auto; margin-top: 9px; }
 
 #colwizard .wizbtns button {
   background: var(--header-bg);

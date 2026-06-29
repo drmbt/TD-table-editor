@@ -178,6 +178,8 @@ const Bridge = (() => {
       later(mockTableMsg());
     } else if (msg.t === 'sel') {
       MOCK.lastSel = msg.sel;        // inspectable in tests; TD writes DATs
+    } else if (msg.t === 'button' || msg.t === 'click') {
+      MOCK.lastClick = msg;          // TD routes onClick<Column>/onClick
     } else if (msg.t === 'clip') {
       MOCK.lastClip = msg.text;
     } else if (msg.t === 'setheader') {

@@ -224,6 +224,7 @@ const Grid = (() => {
         cell.dataset.c = c;
         const fmt = effFmt(c);
         const def = isVirt(c) ? vDef(c) : srcOver[c];
+        if (isVirt(c)) cell.classList.add('cell-clickable');   // clickable
         // cell content source: DAT value, or for virtual/expr columns the
         // TD-evaluated expr result shipped in uivals
         const content = def && def.expr
@@ -260,6 +261,13 @@ const Grid = (() => {
           }, { once: true });
           cell.classList.add('fmt-thumb');
           cell.appendChild(img);
+        } else if (fmt === 'delete') {
+          const b = document.createElement('div');
+          b.className = 'cellbtn celldelete';
+          b.textContent = '✕';
+          b.title = 'Delete row';
+          cell.classList.add('fmt-button');
+          cell.appendChild(b);
         } else {
           cell.textContent = content;
         }
@@ -410,6 +418,22 @@ const Grid = (() => {
     } catch (e) { /* private mode etc. */ }
   }
 
+  // "Reset config" pulse from the ext ({t:resetview}): drop saved view
+  // state for this target so the grid re-derives auto widths/formats. The
+  // colDefine is cleared TD-side; the follow-up same-path table broadcast
+  // won't reload storage, so reset the in-memory copies here too.
+  function resetView(path) {
+    const p = path || (T && T.path);
+    if (p) {
+      try {
+        localStorage.removeItem('tdtable:' + p + ':colw');
+        localStorage.removeItem('tdtable:' + p + ':fmt');
+        localStorage.removeItem('tdtable:' + p + ':hide');
+      } catch (e) { /* private mode etc. */ }
+    }
+    if (T) { loadFmt(); loadColW(); renderAll(); }
+  }
+
   // formats/visibility follow their column through a drag-reorder
   function moveFmt(c, gap) {
     const remap = (m) => {
@@ -479,19 +503,26 @@ const Grid = (() => {
       `toggle r${r} c${c} ${on ? 'off' : 'on'}`);
   }
 
-  // button-format cells: flash pressed, fire {t:button} -> onButtonClick
-  // (the callback gets the FULL row incl. hidden columns — the Lister
-  // pattern: visible label, hidden op-path target)
-  function pressButton(vr, c, targetEl) {
+  // clickable cells: any virtual UI column (clickable by default), or a
+  // button-format DAT column. Flash, fire {t:button} (-> onClick<Column> /
+  // onButtonClick / onClick) with the FULL row incl. hidden columns, and
+  // run the built-in action for `delete` mode. Non-destructive modes work
+  // on read-only tables (they only read).
+  function clickCell(vr, c, targetEl) {
     const r = datR(vr);
-    const btn = targetEl && targetEl.closest ? targetEl.closest('.cellbtn') : null;
-    if (btn) {
-      btn.classList.add('pressed');
-      setTimeout(() => btn.classList.remove('pressed'), 120);
+    const def = isVirt(c) ? vDef(c) : null;
+    const fl = targetEl && targetEl.closest
+      ? (targetEl.closest('.cellbtn') || targetEl.closest('.cellthumb')) : null;
+    if (fl) {
+      fl.classList.add('pressed');
+      setTimeout(() => fl.classList.remove('pressed'), 120);
     }
-    const name = isVirt(c) ? (vDef(c) ? vDef(c).name : '') : '';
-    log(`button r${r} ${name ? '"' + name + '"' : 'c' + c}`);
+    const name = def ? def.name : '';
+    log(`click ${name ? '"' + name + '"' : 'c' + c} r${r}`);
     if (cbs.button) cbs.button(r, isVirt(c) ? -1 : c, name);
+    if (def && def.mode === 'delete' && T && T.editable) {
+      structOp(() => cbs.deleteRows([r]), `delete row ${r}`);
+    }
   }
 
   // colDefine spec from the ext: split into DAT-column overrides and
@@ -1011,11 +1042,39 @@ const Grid = (() => {
     pgup: 'PageUp', pgdn: 'PageDown', f2: 'F2',
   };
 
+  // a focused, editable text input (wizard fields, filter, header rename) —
+  // not the grid's hidden clip or the cell editor (handled separately)
+  function focusedInput() {
+    const ae = document.activeElement;
+    if (ae && ae !== clip && ae !== editInput
+        && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
+        && ae.type !== 'checkbox' && ae.type !== 'radio') return ae;
+    return null;
+  }
+
+  // move focus to the next/prev focusable control within a container —
+  // drives in-TD Tab (external browsers traverse natively)
+  function tabWithin(container, current, back) {
+    const f = [...container.querySelectorAll('input, select, textarea, button')]
+      .filter((e) => !e.disabled && e.tabIndex !== -1 && e.offsetParent !== null);
+    if (!f.length) return;
+    let i = f.indexOf(current);
+    i = (i + (back ? -1 : 1) + f.length) % f.length;
+    const n = f[i];
+    n.focus();
+    if (n.select && (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA')) n.select();
+  }
+
   window.__tdKey = (k) => {
+    const ae = document.activeElement;
+    // wizard Tab cycles its fields (in-TD; browsers traverse natively)
+    if (k.key === 'tab' && wizEl && ae && wizEl.contains(ae)) {
+      tabWithin(wizEl, ae, !!k.shift);
+      return;
+    }
     // a focused page input (e.g. the filter box) gets the keys — in-TD
     // keystrokes only arrive through here, so route them to whatever
     // editor has focus instead of the grid
-    const ae = document.activeElement;
     if (ae && ae !== clip && ae !== editInput
         && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
       if (k.key === 'esc') {
@@ -1074,6 +1133,20 @@ const Grid = (() => {
       }
       return;
     }
+    // any other focused text input (wizard fields, filter, rename): copy/
+    // cut its text selection through the OS clipboard (ui.clipboard)
+    const inp = focusedInput();
+    if (inp) {
+      const s = inp.selectionStart, e = inp.selectionEnd;
+      const has = s != null && e != null && s !== e;
+      const text = has ? inp.value.slice(s, e) : inp.value;
+      if (text && cbs.clip) cbs.clip(text);
+      if (cut && has) {
+        inp.setRangeText('', s, e, 'end');
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      return;
+    }
     if (!sel) return;
     const tsv = selectionTSV();
     if (tsv && cbs.clip) cbs.clip(tsv);
@@ -1084,6 +1157,18 @@ const Grid = (() => {
     if (editing && editInput) {
       editInput.setRangeText(String(text || ''),
         editInput.selectionStart, editInput.selectionEnd, 'end');
+      return;
+    }
+    // any other focused text input: paste at the caret / over the selection
+    const inp = focusedInput();
+    if (inp) {
+      if (inp.setRangeText && inp.selectionStart != null) {
+        inp.setRangeText(String(text || ''),
+          inp.selectionStart, inp.selectionEnd, 'end');
+      } else {
+        inp.value += String(text || '');
+      }
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
       return;
     }
     pasteTSV(String(text || ''));
@@ -1259,9 +1344,16 @@ const Grid = (() => {
       const mods = evMods(e);
       const multi = (mods.ctrl || mods.meta) && !mods.shift;
       if (isVirt(hit.c)) {
-        // virtual cells never select or edit; buttons fire their callback
-        if (effFmt(hit.c) === 'button') pressButton(hit.vr, hit.c, e.target);
+        // virtual cells never select or edit; a plain click fires the
+        // callback (and runs the built-in action for `delete` mode)
+        if (!mods.shift && !multi) clickCell(hit.vr, hit.c, e.target);
         return;
+      }
+      // universal Lister-style onClick: every plain left-click on a real,
+      // non-button cell reaches the generic onClick — alongside, never
+      // instead of, selection/edit. Button cells go through {t:button}.
+      if (!mods.shift && !multi && effFmt(hit.c) !== 'button' && cbs.click) {
+        cbs.click(datR(hit.vr), hit.c, colName(hit.c));
       }
       if (effFmt(hit.c) === 'checkbox' && T.editable && effEditable(hit.c)
           && !mods.shift && !multi) {
@@ -1271,9 +1363,9 @@ const Grid = (() => {
         return;
       }
       if (effFmt(hit.c) === 'button' && !mods.shift && !multi) {
-        // button cells fire the onButtonClick callback — no selection
-        // change, no edit; works on read-only tables (buttons read)
-        pressButton(hit.vr, hit.c, e.target);
+        // button cells fire the click callback — no selection change, no
+        // edit; works on read-only tables (buttons read)
+        clickCell(hit.vr, hit.c, e.target);
         return;
       }
       const now = Date.now();
@@ -1500,21 +1592,26 @@ const Grid = (() => {
       const n = colName(i);
       srcOpts.push(`<option value="${n}"${n === cur.source ? ' selected' : ''}>${n}</option>`);
     }
-    const modeOpts = ['text', 'checkbox', 'button', 'thumb', 'eval']
+    const modeOpts = ['text', 'checkbox', 'button', 'thumb', 'delete', 'eval']
       .map((m) => `<option value="${m}"${m === cur.mode ? ' selected' : ''}>${m}</option>`);
     wizEl.innerHTML = `
-      <div class="wizttl">${isNew ? 'Add UI column' : 'Column settings'}</div>
-      <label>Column name <input id="wz-column" value="${cur.column}"></label>
-      <label>Label <input id="wz-label" value="${cur.label}"></label>
-      <label>Source column <select id="wz-source">${srcOpts.join('')}</select></label>
-      <label>Format <select id="wz-mode">${modeOpts.join('')}</select></label>
-      <label>Expression <input id="wz-expr" value="${cur.expr.replace(/"/g, '&quot;')}"
-        placeholder="f&quot;{cells['path']}/out1&quot; — python, per row"></label>
-      <label>Button icon <input id="wz-icon" value="${cur.icon}"
-        placeholder="TOP path or image file"></label>
-      <label>Width <input id="wz-width" value="${cur.width}" placeholder="auto"></label>
-      <label class="wizrow"><input type="checkbox" id="wz-visible"${cur.visible ? ' checked' : ''}> visible</label>
-      <label class="wizrow"><input type="checkbox" id="wz-editable"${cur.editable ? ' checked' : ''}> editable</label>
+      <div class="wizhead">
+        <div class="wizttl">${isNew ? 'Add UI column' : 'Column settings'}</div>
+        <button id="wz-close" class="wizclose" title="Close" aria-label="Close">×</button>
+      </div>
+      <div class="wizbody">
+        <label>Column name <input id="wz-column" value="${cur.column}"></label>
+        <label>Label <input id="wz-label" value="${cur.label}"></label>
+        <label>Source column <select id="wz-source">${srcOpts.join('')}</select></label>
+        <label>Format <select id="wz-mode">${modeOpts.join('')}</select></label>
+        <label>Expression <input id="wz-expr" value="${cur.expr.replace(/"/g, '&quot;')}"
+          placeholder="f&quot;{cells['path']}/out1&quot; — python, per row"></label>
+        <label>Button icon <input id="wz-icon" value="${cur.icon}"
+          placeholder="TOP path or image file"></label>
+        <label>Width <input id="wz-width" value="${cur.width}" placeholder="auto"></label>
+        <label class="wizrow"><input type="checkbox" id="wz-visible"${cur.visible ? ' checked' : ''}> visible</label>
+        <label class="wizrow"><input type="checkbox" id="wz-editable"${cur.editable ? ' checked' : ''}> editable</label>
+      </div>
       <div class="wizbtns">
         <button id="wz-save">Save</button>
         <button id="wz-cancel">Cancel</button>
@@ -1540,12 +1637,27 @@ const Grid = (() => {
     };
     wizEl.querySelector('#wz-save').addEventListener('click', save);
     wizEl.querySelector('#wz-cancel').addEventListener('click', closeWiz);
+    wizEl.querySelector('#wz-close').addEventListener('click', closeWiz);
     wizEl.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
       if (ev.key === 'Enter') { ev.preventDefault(); save(); }
       else if (ev.key === 'Escape') { ev.preventDefault(); closeWiz(); }
+      else if (ev.key === 'Tab') {
+        // cycle within the dialog (so Tab past the last field doesn't blur
+        // out and close it) — mirrors the in-TD __tdKey path
+        ev.preventDefault();
+        tabWithin(wizEl, document.activeElement, ev.shiftKey);
+      }
     });
     wizEl.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    // Close once focus leaves the wizard entirely (it has to gain focus
+    // first — we focus #wz-column below). Defer so the new focus target
+    // settles before we test containment (focusout fires before focusin).
+    wizEl.addEventListener('focusout', () => {
+      setTimeout(() => {
+        if (wizEl && !wizEl.contains(document.activeElement)) closeWiz();
+      }, 0);
+    });
     wizEl.querySelector('#wz-column').focus();
   }
 
@@ -1850,5 +1962,5 @@ const Grid = (() => {
   }
 
   return { init, setTable, applyEdits, setFilter, dims, setStyle,
-    appendRow, appendCol, applySortToDAT, setUiVals };
+    appendRow, appendCol, applySortToDAT, setUiVals, resetView };
 })();

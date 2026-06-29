@@ -150,10 +150,17 @@ Client → TD:
                                            // the pointer -> container COMP
                                            // cursor par (offscreen CEF
                                            // can't change the OS cursor)
-{"t":"button", "r":3, "c":1, "col":"play"} // button cell clicked (c=-1 for
-                                           // virtual columns, col = UI column
-                                           // name) -> onClick<Name> or
-                                           // onButtonClick with the full row
+{"t":"button", "r":3, "c":1, "col":"play"} // button-format cell or ANY virtual
+                                           // UI column clicked (c=-1 for
+                                           // virtuals, col = UI column name) ->
+                                           // onClick<Name> -> onButtonClick ->
+                                           // onClick, with the full row. A
+                                           // virtual "delete" column also sends
+                                           // {t:deleterows} for that row.
+{"t":"click", "r":3, "c":1, "col":"name"}  // universal Lister-style click on
+                                           // ANY (non-button) cell -> named
+                                           // onClick<Name> -> onClick (alongside
+                                           // selection/edit, never replacing it)
 {"t":"setcoldef", "defs":[                 // page menus / column-settings
   {"column":"play", "set":{"mode":"button"}},  // wizard write the colDefine
   {"column":"old"}]}                       // entry without "set" = delete
@@ -173,6 +180,9 @@ TD → client:
 {"t":"style", "style":{"accent":"#b45fff", "fontsize":13}}  // live restyle
 {"t":"clip", "text":"a\tb"}                // reply to {t:"getclip"}
 {"t":"reload"}                             // Reloadclients pulse: pages reload
+{"t":"resetview", "path":"/project1/t1"}   // Resetconfig pulse: clients drop
+                                           // saved view state (colDefine cleared
+                                           // TD-side) -> re-derive auto config
 {"t":"error", "msg":"..."}
 ```
 

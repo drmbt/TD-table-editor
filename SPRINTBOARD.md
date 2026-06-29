@@ -258,13 +258,54 @@ never by hand unless wanted.
       pops window; example keyboardin macro snippet for Vincent's setup
 - [ ] Follow-selection mode: editor retargets to the currently selected
       DAT in the network editor (poll `ui.panes` selection)
-- [ ] Per-table view specs in `specs/<opName>.json` (column widths,
-      column formats, header flag) — project-portable, hot-reload,
-      localStorage stays the fallback
+- [→] Per-table portable config — de-scoped to icebox/stretch 2026-06-29
+      (per-facet specs files, name/path/default fallback, hot-reload)
 - [x] Theme/style pars on the comp (Style page → CSS vars, theme
       presets incl. drmbt) — landed 1h, menu-sync fix 1k
 
+### M9 — Interactive virtual columns  ✓ DONE 2026-06-29
+Virtual (colDefine) columns become first-class interactive UI, reusing
+the ONE click→callback pipeline (no parallel dispatch).
+- [x] Virtual columns clickable by default: any virtual cell (not just
+      `button`) fires the click path → `onClick<Column>` (named) else
+      `onButtonClick` → `onClick`. Press-flash on the rendered element
+      (cellbtn/cellthumb), `cell-clickable` cursor; virtual cells still
+      never select/edit. Web-only.
+- [x] Virtual `delete` mode: renders an ✕; click removes that DAT row via
+      the existing `{t:deleterows}` path (TD-undoable, no native confirm).
+      Added to the wizard mode menu. Fires the click callback too
+      (`onClickDelete`/observable) before deleting.
+- [x] Universal `onClick(info)` (Lister parity): a click on ANY non-button
+      cell reaches a generic `onClick` — new `{t:click,r,c,col}` message.
+      Ext dispatch precedence: `onClick<Column>` → `onButtonClick` (button
+      path only) → `onClick`. Documented in README + CLAUDE.md.
+- [x] `Resetconfig` pulse par (bonus, requested same round): clears the
+      colDefine to its empty skeleton + broadcasts `{t:resetview}` so
+      clients drop saved view state → editor re-derives auto config.
+      Verified mock (all click types, delete removes rows, view reset) and
+      live (dispatch precedence incl. named-delete, Resetconfig cleared the
+      icon column then restored).
+
+### M10 — Reorderable virtual columns
+Deferred from M9 for proper consideration (Vincent, 2026-06-29) — it
+reworks the column coordinate model the whole grid depends on.
+- [ ] Display↔DAT column-order indirection so a virtual UI column can sit
+      anywhere (e.g. an icon/delete column first) WITHOUT changing the
+      real DAT column indices. The invariant "wire coordinates are DAT
+      coordinates" must hold. Touch points: render loop, `isVirt`/`vDef`,
+      `colLeft`/`eW`, hit-test, selection, copy/paste (skip virtuals),
+      sort (by DAT col), resize, in-TD interactMouse forwarding. Order
+      persisted as a colDefine property.
+
 ### Later / icebox
+- **Portable configs (specs/ folder)** — STRETCH, de-scoped 2026-06-29:
+  per-target portable config (colDefine/style/view), name/full-path/default
+  fallback chain, file-as-source-of-truth + hot-reload, `Specsfolder` par,
+  `Resetconfig` pulse. Not needed yet — multiple distinct tables cover the
+  current need, and colDefine already travels with the comp. Revisit if/when
+  configs must survive across browsers, machines, or projects. Callbacks
+  portability folded in here too (lean: name handlers in colDefine, keep one
+  shared module).
 - Fill-down/fill-right + drag-fill handle (dropped from M3 in favor of
   ctrl+d duplicate-rows); multi-column sort; per-column filter row;
   frozen columns; find & replace; row striping / density toggle;
@@ -275,6 +316,100 @@ never by hand unless wanted.
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-29 — Session 2d (Column Settings dialog: in-TD clipboard + Tab)
+- Bug (Vincent, in-TD): pasting while focused in a Column Settings field
+  pasted over the selected GRID cell instead of the field — and Tab/Enter
+  committed-and-closed instead of moving to the next field. Cause:
+  `__tdCopy`/`__tdPaste` only handled the cell editor and grid selection,
+  and `__tdKey` aliased Tab→Enter for inputs. (External browsers were fine
+  — native clipboard/Tab.)
+- Fix (web-only, in-TD paths): new `focusedInput()` — `__tdCopy`/`__tdCut`/
+  `__tdPaste` now operate on any focused page input (dialog fields, filter,
+  rename) via its own selection/caret through ui.clipboard, never the grid.
+  New `tabWithin()` cycles focusable controls; `__tdKey` routes Tab within
+  an open `#colwizard` (and the wizard's own keydown does the same for
+  browsers so Tab past the last field doesn't blur-close it).
+- **CEF stale-cache gotcha hit hard here:** `location.reload()` (even
+  `reload(true)`) kept serving the cached `grid.js` subresource despite the
+  webserver's `Cache-Control: no-cache`; only an `about:blank` → real-URL
+  re-navigation forced a fresh fetch. Worth a permanent mtime cache-bust on
+  the served index.html (flagged, not yet done).
+- Verified: mock (copy→{t:clip}=selection, paste-at-caret, cut; Tab cycles
+  wz-column→label→source→mode→expr, shift+Tab reverses; clean console) and
+  live TD after forcing fresh js (focused dialog field: paste 'BBB' into
+  'AAA' → field 'AAABBB', **table1 byte-identical/untouched**; copy routed
+  the field text to ui.clipboard).
+
+### 2026-06-29 — Session 2c (M9: interactive virtual columns + Resetconfig)
+- **Virtual columns clickable by default.** Generalized the button-click
+  path (`pressButton`→`clickCell`): any virtual UI cell (button/thumb/
+  text/eval) flashes and fires the click; thumbs/text/eval virtual cells
+  get a `cell-clickable` pointer. Source-override thumbs left alone (still
+  selectable). Virtual cells still never select/edit.
+- **Virtual `delete` mode.** New `delete` colDefine mode renders an ✕ cell
+  (`.celldelete`); a click removes that DAT row via the existing
+  `{t:deleterows}` structOp (client + TD undoable) AND fires the click
+  callback first (so `onClickDelete` can observe/extend). Added to the
+  wizard mode dropdown.
+- **Universal `onClick` (Lister parity).** New `{t:click,r,c,col}` sent on
+  any plain left-click of a non-button real cell (alongside selection/
+  edit, never replacing it). Ext dispatch unified in `_dispatchClick` with
+  `_clickInfo`: precedence `onClick<Column>` (named) → `onButtonClick`
+  (button/virtual path only) → `onClick` (universal). `{t:button}` now
+  also falls through to `onClick`. `_CB_TEXT` template gained onClick/
+  onClickIcon examples (new comps only).
+- **`Resetconfig` pulse par** (+ parexec branch, +`ResetConfig()`): clears
+  the colDefine to its property skeleton and broadcasts `{t:resetview}` →
+  page drops localStorage view state for the target (widths/formats/
+  hidden) and re-derives auto config (same-path table won't reload storage,
+  so `Grid.resetView` resets in-memory too).
+- Protocol documented in README + CLAUDE.md (`{t:click}`, `{t:resetview}`,
+  the dispatch precedence, delete mode, Resetconfig par).
+- Verified: mock (Go/Pic/del virtual columns; button→{t:button,col},
+  data→{t:click,col}, thumb→{t:button,col}; delete emits + removes a row
+  61→59; resetView cleared all three localStorage keys; clean console) and
+  live TD (reinit + webrender reload; probe callbacks confirmed onClick /
+  onClickIcon / onButtonClick / onClickDelete precedence incl. the
+  named-vs-generic split and a real cell click firing onClick; Resetconfig
+  cleared the `icon` column to skeleton; Vincent's colDefine + Callbackdat
+  restored, probe scaffolding destroyed).
+
+### 2026-06-29 — Session 2b (roadmap: M9/M10/M11 + portability design)
+- No code (design + planning). Clarified that `/specs/<op>.json` was never
+  implemented (roadmap-only since scaffold) and colDefine (M7) is the only
+  persistence-beyond-localStorage mechanism — and that colDefine is a
+  SINGLE global DAT (not per-target), while view state is per-target but
+  trapped in client localStorage (per-profile, not in the .toe/repo, no
+  sync between the in-TD webrender and browsers).
+- Planned two milestones from Vincent's direction: **M9** interactive
+  virtual columns (clickable-by-default, `delete` mode, universal
+  `onClick` via new `{t:click}`); **M10** reorderable virtual columns
+  (deferred — column-coordinate-model refactor). Explored portable specs/
+  configs in depth (per-facet files, sanitized-full-path → name → default
+  chain, `Specsfolder` par, file-as-source-of-truth + hot-reload) but
+  **Vincent de-scoped it to icebox/stretch** — multiple distinct tables
+  cover the current need and colDefine already travels with the comp.
+  Callbacks portability parked with it.
+
+### 2026-06-26 — Session 2a (Column settings popup: scroll + close affordances)
+- The "Column settings…" wizard is an in-page absolute panel, not a real
+  window — on a short in-TD panel it overflowed below the viewport and the
+  Save/Cancel footer was unreachable (no way to dismiss). Fixed:
+  `#colwizard` now caps at `max-height: calc(100% - 56px)`; restructured
+  into a pinned `.wizhead` (title + new × close button, upper right) /
+  scrolling `.wizbody` (the fields) / pinned `.wizbtns` footer, so Save/
+  Cancel and the × are always reachable and the fields scroll. Added
+  focus-out-to-close: a deferred `focusout` handler closes the wizard once
+  focus leaves it entirely (the grid focuses its hidden `clip` input on
+  any cell click, so clicking the table dismisses it; tabbing between the
+  wizard's own fields keeps it open via a `contains` guard). Esc/Cancel/×
+  remain explicit dismissers. Web-only (grid.js + theme.css); applied live
+  via Reloadclients.
+- Verified in mock at a 280px-tall viewport: wizard constrained within the
+  panel, footer reachable, body scrolls (381px content in a 76px clip),
+  × closes, focusout closes when focus is genuinely outside, internal
+  field focus keeps it open; clean console. Live: in-TD client reloaded.
 
 ### 2026-06-12 — Session 1r (M7: colDefine — configured UI columns + wizard)
 - The Lister colDefine model, configured from the page (no docs trip):

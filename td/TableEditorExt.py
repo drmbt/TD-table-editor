@@ -78,7 +78,7 @@ class TableEditorExt:
 
 	_PE2_PARS = ('Targetop Headerrow Refresh Openinbrowser Openviewer'
 				 ' Displaylog'
-				 ' Reloadclients'
+				 ' Reloadclients Resetconfig'
 				 ' Bgcolor* Panelcolor* Cellcolor* Cellaltcolor* Gridcolor*'
 				 ' Headercolor* Guttercolor* Textcolor* Textdimcolor*'
 				 ' Accentcolor* Highlightcolor* Fontfamily Fontsize Rowheight'
@@ -96,6 +96,8 @@ class TableEditorExt:
 		"\t\text.OpenWindow()\n"
 		"\telif par.name == 'Reloadclients':\n"
 		"\t\text.ReloadClients()\n"
+		"\telif par.name == 'Resetconfig':\n"
+		"\t\text.ResetConfig()\n"
 		"\treturn\n"
 		"\n"
 		"def onValueChange(par, prev):\n"
@@ -253,6 +255,21 @@ class TableEditorExt:
 		'#     op(info[\'cells\'][3]).par.play.pulse()."""\n'
 		'#     pass\n'
 		'\n'
+		'# def onClick(info):\n'
+		'#     """Universal click on ANY cell (data or virtual UI column).\n'
+		'#     info: row, col, column (UI/DAT column name), cells (FULL row),\n'
+		'#     cellsByName, target. Fires unless a more specific\n'
+		'#     onClick<Column> is defined. e.g. for a hidden \'path\' column:\n'
+		'#     op(info[\'cellsByName\'][\'path\']).par.play.pulse()."""\n'
+		'#     pass\n'
+		'\n'
+		'# def onClickIcon(info):\n'
+		'#     """Named click: fires for a button/thumb/virtual column named\n'
+		'#     "icon" (onClick + Capitalized column name). Beats onClick /\n'
+		'#     onButtonClick. A virtual `delete` column removes the row on\n'
+		'#     its own — define onClickDelete only to add a confirm/hook."""\n'
+		'#     pass\n'
+		'\n'
 		'# def onEdit(info):\n'
 		'#     """Cells written. info: edits [{r,c,v}], prev [(r,c,old)]."""\n'
 		'#     pass\n'
@@ -277,6 +294,9 @@ class TableEditorExt:
 			if getattr(comp.par, 'Reloadclients', None) is None:
 				mainPage.appendPulse('Reloadclients',
 									 label='Reload Web Clients')
+			if getattr(comp.par, 'Resetconfig', None) is None:
+				mainPage.appendPulse('Resetconfig',
+									 label='Reset Config (Auto)')
 			if getattr(comp.par, 'Displaylog', None) is None:
 				p = mainPage.appendToggle('Displaylog',
 										  label='Display Log')[0]
@@ -460,6 +480,22 @@ class TableEditorExt:
 		"""Re-snapshot and rebroadcast (Refresh pulse / Headerrow change)."""
 		self._snap = self._read(self._target())
 		self._broadcastTable()
+
+	def ResetConfig(self):
+		"""Resetconfig pulse: wipe the editor back to its zero-config/auto
+		state for the current target. Clears the colDefine UI columns back
+		to the empty property skeleton, tells clients to drop their saved
+		view state (widths/formats/hidden), then re-broadcasts so the grid
+		re-derives auto widths/formats straight from the table."""
+		cd = self._colDef()
+		if cd is not None:
+			cd.clear()
+			for rname in self._COLDEF_ROWS:
+				cd.appendRow([rname])
+		dat = self._target()
+		self._broadcast({'t': 'resetview',
+						 'path': dat.path if dat is not None else ''})
+		self.Refresh()
 
 	def Open(self, path):
 		"""Retarget to a DAT path and pop the viewer window — the hook for
@@ -686,29 +722,23 @@ class TableEditorExt:
 			elif t == 'refresh':
 				self.Refresh()
 			elif t == 'button':
-				# button cell clicked: hand the callback the full row
-				# (incl. hidden columns) so it can reach its target.
-				# Lister-style named callback (onClickPlay for column
-				# 'play') wins over the generic onButtonClick.
-				r = int(msg.get('r', -1))
-				cells = (list(self._snap[r]) if self._snap is not None
-						 and 0 <= r < len(self._snap) else [])
-				names = self._colNames()
-				colName = str(msg.get('col', ''))
-				c = int(msg.get('c', -1))
-				if not colName and 0 <= c < len(names):
-					colName = names[c]
-				info = {'row': r, 'col': c, 'column': colName,
-						'cells': cells,
-						'cellsByName': {n: (cells[i] if i < len(cells)
-											else '')
-										for i, n in enumerate(names)}}
-				named = ('onClick' + colName[:1].upper() + colName[1:]
-						 if colName else '')
-				if named and self._hasCallback(named):
-					self._callback(named, info)
-				else:
-					self._callback('onButtonClick', info)
+				# clickable cell (button-format column or any virtual UI
+				# column). Hand the callback the FULL row (hidden columns
+				# included) so it can reach its target. Dispatch precedence:
+				# onClick<Column> (named) -> onButtonClick -> onClick.
+				self._dispatchClick(
+					self._clickInfo(int(msg.get('r', -1)),
+									int(msg.get('c', -1)),
+									str(msg.get('col', ''))),
+					allowButtonAlias=True)
+			elif t == 'click':
+				# universal Lister-style click on ANY cell. Precedence:
+				# onClick<Column> (named) -> onClick (universal).
+				self._dispatchClick(
+					self._clickInfo(int(msg.get('r', -1)),
+									int(msg.get('c', -1)),
+									str(msg.get('col', ''))),
+					allowButtonAlias=False)
 			elif t == 'setcoldef':
 				# page menus / column-settings wizard write the config
 				self._setColDef(msg.get('defs') or [])
@@ -888,6 +918,33 @@ class TableEditorExt:
 			return dat is not None and getattr(dat.module, name, None) is not None
 		except Exception:
 			return False
+
+	def _clickInfo(self, r, c, colName):
+		"""Build the click callback info: row, col, column name, the FULL
+		row (cells), and cellsByName. Resolves an empty column name from
+		the DAT column index."""
+		cells = (list(self._snap[r]) if self._snap is not None
+				 and 0 <= r < len(self._snap) else [])
+		names = self._colNames()
+		if not colName and 0 <= c < len(names):
+			colName = names[c]
+		return {'row': r, 'col': c, 'column': colName, 'cells': cells,
+				'cellsByName': {n: (cells[i] if i < len(cells) else '')
+								for i, n in enumerate(names)}}
+
+	def _dispatchClick(self, info, allowButtonAlias):
+		"""One click dispatch for buttons, virtual cells and plain cells.
+		Precedence: onClick<Column> (named) -> onButtonClick (only for
+		button/virtual clicks) -> onClick (universal catch-all)."""
+		colName = info.get('column', '')
+		named = ('onClick' + colName[:1].upper() + colName[1:]
+				 if colName else '')
+		if named and self._hasCallback(named):
+			self._callback(named, info)
+		elif allowButtonAlias and self._hasCallback('onButtonClick'):
+			self._callback('onButtonClick', info)
+		else:
+			self._callback('onClick', info)
 
 	def _callback(self, name, info):
 		"""Lister-style user callbacks: resolve the Callbackdat par to a

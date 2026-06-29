@@ -85,6 +85,7 @@
     log: logAction,
     cursor: (name) => Bridge.send({ t: 'cursor', name }),
     button: (r, c, col) => Bridge.send({ t: 'button', r, c, col: col || '' }),
+    click: (r, c, col) => Bridge.send({ t: 'click', r, c, col: col || '' }),
     setColDef: (defs) => Bridge.send({ t: 'setcoldef', defs }),
   });
 
@@ -94,6 +95,8 @@
         applyStyle(msg.style);
       } else if (msg.t === 'reload') {
         location.reload();      // Reloadclients pulse: stale-page recovery
+      } else if (msg.t === 'resetview') {
+        Grid.resetView(msg.path);   // Resetconfig pulse: drop saved view state
       } else if (msg.t === 'table') {
         table = msg;
         if (msg.style) applyStyle(msg.style);

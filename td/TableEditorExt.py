@@ -325,6 +325,11 @@ class TableEditorExt:
 				p = mainPage.appendOP('Coldefine',
 									  label='Column Define DAT')[0]
 				p.val = './colDefine'
+			# colDefine + its par now exist; fully define it for the current
+			# target and rebroadcast (init's OnTargetChange ran before this
+			# deferred setup created colDefine, so it couldn't populate then)
+			self._syncColDef()
+			self._broadcastTable()
 		except Exception as e:
 			debug('TableEditor: main par setup failed: %s' % e)
 		# Style page (idempotent, per-par: new pars append on reinit)
@@ -471,6 +476,7 @@ class TableEditorExt:
 			except Exception:
 				pass
 		self._snap = self._read(dat)
+		self._syncColDef()      # fully define colDefine for the new target
 		self.OnSelection(None)  # selection coords from the old table are stale
 		self._broadcastTable()
 		self._callback('onTargetChange',
@@ -492,6 +498,7 @@ class TableEditorExt:
 			cd.clear()
 			for rname in self._COLDEF_ROWS:
 				cd.appendRow([rname])
+		self._syncColDef()      # regenerate fresh default entries (auto)
 		dat = self._target()
 		self._broadcast({'t': 'resetview',
 						 'path': dat.path if dat is not None else ''})
@@ -817,10 +824,14 @@ class TableEditorExt:
 			if not name:
 				continue
 			source = cell('source')
+			if source and source not in names:
+				# accumulated entry for a column not in THIS target —
+				# keep it in the DAT but don't render it (per-target hide)
+				continue
 			d = {
 				'name': name,
 				'label': cell('label') or '*',
-				'src': names.index(source) if source in names else -1,
+				'src': names.index(source) if (source and source in names) else -1,
 				'mode': cell('mode') or 'text',
 				'expr': cell('expr'),
 				'icon': cell('icon'),
@@ -873,6 +884,64 @@ class TableEditorExt:
 		if not defs:
 			return [], {}
 		return defs, self._uiVals(defs)
+
+	def _syncColDef(self):
+		"""Fully define colDefine for the current target: every table column
+		gets an entry (source = its name, auto defaults), ordered to match the
+		target. ACCUMULATE — entries whose source is not in this target are
+		kept (hidden by _uiColsSpec), never removed; virtual columns (no
+		source) are preserved after the table columns. Idempotent."""
+		cd = self._colDef()
+		if cd is None:
+			return
+		names = self._colNames()
+		if not names:
+			return
+		if cd.numRows < 1 or cd[0, 0].val.strip() != 'column':
+			cd.clear()
+			for rname in self._COLDEF_ROWS:
+				cd.appendRow([rname])
+		rowIdx = {cd[r, 0].val.strip(): r for r in range(cd.numRows)}
+		for prop in self._COLDEF_ROWS:
+			if prop not in rowIdx:
+				cd.appendRow([prop])
+				rowIdx[prop] = cd.numRows - 1
+		entries = []
+		for c in range(1, cd.numCols):
+			e = {pr: cd[rowIdx[pr], c].val for pr in self._COLDEF_ROWS}
+			if e.get('column', '').strip():
+				entries.append(e)
+		bySource = {}
+		for e in entries:
+			src = e.get('source', '').strip()
+			if src and src not in bySource:
+				bySource[src] = e
+		used = set()
+		ordered = []
+		# 1) target columns, in target order: existing entry or a new default
+		for n in names:
+			if not n.strip():
+				continue        # unnamed table column — can't key by name
+			e = bySource.get(n)
+			if e is not None and id(e) not in used:
+				ordered.append(e)
+				used.add(id(e))
+			else:
+				ordered.append({'column': n, 'label': '', 'source': n,
+								'mode': 'text', 'expr': '', 'icon': '',
+								'visible': '1', 'width': '', 'editable': '1'})
+		# 2) accumulated (source not in target) + virtuals, original order kept
+		for e in entries:
+			if id(e) not in used:
+				ordered.append(e)
+		# rewrite entry columns in the computed order (keep property col 0)
+		while cd.numCols > 1:
+			cd.deleteCol(cd.numCols - 1)
+		for e in ordered:
+			cd.appendCol([''] * cd.numRows)
+			col = cd.numCols - 1
+			for pr in self._COLDEF_ROWS:
+				cd[rowIdx[pr], col] = str(e.get(pr, ''))
 
 	def _setColDef(self, entries):
 		"""Write entries [{column, set:{prop: value}}] into the colDefine

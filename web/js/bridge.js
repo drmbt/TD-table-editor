@@ -56,12 +56,38 @@ const Bridge = (() => {
   // columns evaluate to '')
   const MOCKDEF = new Map();
 
-  function mockUiCols() {
-    const names = MOCK.headerRow && MOCK.cells.length
+  function mockColNames() {
+    return MOCK.headerRow && MOCK.cells.length
       ? MOCK.cells[0].map(String)
       : (MOCK.cells[0] || []).map((_, i) => 'c' + i);
+  }
+
+  // mirror the ext's _syncColDef: every table column gets an entry
+  // (source = name), in target order; accumulated + virtual entries kept
+  function mockSyncColDef() {
+    const names = mockColNames();
+    if (!names.length) return;
+    const bySource = new Map();
+    for (const [n, p] of MOCKDEF) { if (p.source) bySource.set(p.source, n); }
+    const ordered = new Map();
+    for (const nm of names) {
+      const en = bySource.get(nm);
+      if (en !== undefined) ordered.set(en, MOCKDEF.get(en));
+      else if (MOCKDEF.has(nm)) ordered.set(nm, MOCKDEF.get(nm));
+      else ordered.set(nm, { source: nm, label: '', mode: 'text',
+        visible: '1', width: '', editable: '1' });
+    }
+    for (const [n, p] of MOCKDEF) { if (!ordered.has(n)) ordered.set(n, p); }
+    MOCKDEF.clear();
+    for (const [n, p] of ordered) MOCKDEF.set(n, p);
+  }
+
+  function mockUiCols() {
+    const names = mockColNames();
     const defs = [];
     for (const [name, p] of MOCKDEF) {
+      const source = p.source || '';
+      if (source && names.indexOf(source) < 0) continue;   // hide-unmatched
       defs.push({
         name,
         label: (p.label || '*') === '*' ? name : p.label,
@@ -79,6 +105,7 @@ const Bridge = (() => {
 
   function mockTableMsg() {
     MOCK.rev += 1;
+    mockSyncColDef();    // fully define colDefine for the demo table
     return {
       t: 'table', rev: MOCK.rev, path: MOCK.path, name: MOCK.name,
       editable: MOCK.editable, headerRow: MOCK.headerRow,

@@ -69,9 +69,20 @@ appended after the table columns — `expr` evaluates per data row
 TD-SIDE (`cells` dict by column name, `row`, `op`, `me`) for
 thumb/eval content, `uicols`+`uivals` ride the table broadcast,
 {t:uivals} refreshes after deltas. Virtual cells never select/edit;
-wire coordinates stay DAT coordinates. colDefine wins over the
-localStorage view state (`:fmt`/`:hide`, zero-config fallback);
-"Save view as config" graduates localStorage → colDefine. `thumb`
+wire coordinates stay DAT coordinates. colDefine FULLY defines the
+target: `_syncColDef()` (on OnTargetChange / _ensureSetup / Resetconfig)
+auto-populates a source-bound entry for EVERY table column, in target
+order, preserving existing entries + props (ACCUMULATE — never clobber);
+virtuals stay after the table columns. Entries whose `source` isn't in
+THIS target are kept in the DAT but HIDDEN (`_uiColsSpec` skips them) —
+so one comp's colDefine accumulates across the tables it's pointed at,
+each showing only its own columns. Empty `source` always means virtual
+(never matches an empty-header column). colDefine wins over the
+localStorage view state (`:fmt`/`:hide`/`:colw`, zero-config fallback):
+the page re-derives widths from colDefine every full broadcast, a manual
+resize persists `width` back via {t:setcoldef} (real columns) — so size/
+format/visibility travel with the comp. "Save view as config" graduates
+any leftover localStorage state → colDefine. `thumb`
 cells and button icons load `/thumb?src=<TOP path or image file>`
 from webserver_callbacks (TOP → saveByteArray png, max-age=2).
 NEVER `urllib.urlopen` TD's own webserver from TD python — the

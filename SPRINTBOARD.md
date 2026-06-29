@@ -297,6 +297,31 @@ reworks the column coordinate model the whole grid depends on.
       sort (by DAT col), resize, in-TD interactMouse forwarding. Order
       persisted as a colDefine property.
 
+### M11 — colDefine as the full column spec  ✓ DONE 2026-06-29
+Make colDefine fully define EVERY column (order/size/format/visibility),
+not just virtuals — delivering most of the de-scoped portability via the
+existing comp DAT (file-syncable, travels with the comp), no specs/ files.
+- [x] `_syncColDef()`: on target change / init / Resetconfig, auto-populate
+      a source-bound entry per table column, in target order, preserving
+      existing entries + props (ACCUMULATE, never clobber); virtuals kept
+      after the table columns. Wired into OnTargetChange + _ensureSetup
+      (init race: colDefine is created a frame after the first
+      OnTargetChange) + ResetConfig (regenerates fresh defaults).
+- [x] Per-target hide: `_uiColsSpec` skips entries whose `source` isn't in
+      THIS target (one comp's colDefine accumulates across tables, each
+      shows only its own). Empty `source` always = virtual (fixed an
+      empty-header column matching `names.index('')`).
+- [x] Width write-back: a manual column resize persists `width` to the
+      colDefine entry via {t:setcoldef} (real columns) instead of
+      localStorage; `loadColW` reads colDefine width first; `setTable`
+      re-derives widths every full broadcast so a colDefine width change
+      applies. Format/hide already wrote colDefine (now always populated).
+- [x] Mock parity (mockSyncColDef + hide-unmatched skip). Verified mock
+      (auto-populate, hide ghost col, width read=300 + resize write→
+      setcoldef) and live TD (colDefine auto-filled name/path/parent_path
+      + preserved icon virtual + path width 250; ghostcol hidden then
+      cleaned; name width 200 applied in the webrender).
+
 ### Later / icebox
 - **Portable configs (specs/ folder)** — STRETCH, de-scoped 2026-06-29:
   per-target portable config (colDefine/style/view), name/full-path/default
@@ -316,6 +341,34 @@ reworks the column coordinate model the whole grid depends on.
   (read-only); OSC/MIDI row triggers (cue-list mode).
 
 ## Changelog
+
+### 2026-06-29 — Session 2e (M11: colDefine fully defines the target table)
+- colDefine now fully defines every column (not just virtuals): on target
+  change / init / Resetconfig, `_syncColDef()` auto-populates a source-
+  bound entry per table column in target order, accumulating (never
+  clobbering existing entries/props) and keeping virtuals after the table
+  columns. Entries whose `source` isn't in the current target are kept but
+  hidden (`_uiColsSpec` skips them) — a comp's colDefine accumulates across
+  the tables it targets, each showing only its own columns.
+- Width travels with the comp: a manual resize persists `width` to the
+  colDefine entry via {t:setcoldef} (real columns) rather than
+  localStorage; `loadColW` reads colDefine width first; `setTable` re-
+  derives widths each full broadcast. Format/visibility already wrote
+  colDefine. Resetconfig regenerates fresh default entries.
+- Bug fixed: empty `source` was matching a table column with an empty
+  header (`names.index('') == that index`), turning a virtual into an
+  override — empty source now always means virtual; `_syncColDef` skips
+  unnamed table columns.
+- **Recovery this session:** a TD ctrl+z rolled the file-synced
+  TableEditorExt DAT back to M7 and syncfile wrote it (CRLF+BOM) over the
+  repo, erasing the M9/dialog ext changes from disk AND the live DAT (web
+  files were untouched). Restored from HEAD, re-applied the M9/dialog ext
+  edits, pushed back to the live DAT; committed (690e1a5) before building
+  M11. The CLAUDE.md syncfile-undo trap, live.
+- Verified mock (mockSyncColDef parity, hide ghost col, width read 300 +
+  resize→setcoldef) and live TD (auto-fill name/path/parent_path, icon
+  stays virtual, path width 250 preserved, ghostcol hidden+cleaned, name
+  width 200 rendered in the webrender).
 
 ### 2026-06-29 — Session 2d (Column Settings dialog: in-TD clipboard + Tab)
 - Bug (Vincent, in-TD): pasting while focused in a Column Settings field

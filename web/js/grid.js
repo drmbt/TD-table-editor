@@ -374,8 +374,13 @@ const Grid = (() => {
     try {
       saved = JSON.parse(localStorage.getItem('tdtable:' + T.path + ':colw'));
     } catch (e) { /* fresh */ }
-    colW = Array.from({ length: n }, (_, i) =>
-      (saved && typeof saved[i] === 'number' ? Math.max(MINW, saved[i]) : auto.w[i]));
+    colW = Array.from({ length: n }, (_, i) => {
+      // colDefine width wins (portable, set by a manual resize); then the
+      // saved localStorage width; then the content-aware auto width
+      const cw = srcOver[i] ? parseInt(srcOver[i].width, 10) : NaN;
+      if (Number.isFinite(cw) && cw > 0) return Math.max(MINW, cw);
+      return (saved && typeof saved[i] === 'number') ? Math.max(MINW, saved[i]) : auto.w[i];
+    });
   }
 
   function updateEff() {
@@ -396,6 +401,18 @@ const Grid = (() => {
     try {
       localStorage.setItem('tdtable:' + T.path + ':colw', JSON.stringify(colW));
     } catch (e) { /* private mode etc. */ }
+  }
+
+  // persist a resized column's width: into its colDefine entry when the
+  // table is configured (portable, travels with the comp), else into
+  // localStorage (zero-config fallback)
+  function persistColW(c) {
+    if (configured() && !isVirt(c) && srcOver[c] && cbs.setColDef) {
+      cbs.setColDef([{ column: srcOver[c].name,
+        set: { width: String(Math.round(colW[c])) } }]);
+    } else {
+      saveColW();
+    }
   }
 
   // per-column format views ({colIndex: 'checkbox'}) and hidden columns,
@@ -553,14 +570,10 @@ const Grid = (() => {
     T = t;
     applyUiCols(t.uicols || [], t.uivals || {});
     if (!samePath) loadFmt();
-    if (!samePath || colW.length !== numCols()) {
-      loadColW();
-    } else if (numCols()) {
-      // same table: keep the user's widths but re-pick the fill column
-      // (a col move or edit may have shifted where the long text lives)
-      const auto = computeAuto();
-      fillIdx = auto.maxCh.indexOf(Math.max(...auto.maxCh));
-    }
+    // widths are sourced from colDefine (portable) / localStorage every
+    // broadcast, so re-derive each time: this applies a colDefine width
+    // change and re-picks the fill column
+    loadColW();
     if (!samePath) {
       sortCol = -1;
       sortDir = 0;
@@ -1736,7 +1749,7 @@ const Grid = (() => {
         const onUp = () => {
           window.removeEventListener('pointermove', onMove);
           window.removeEventListener('pointerup', onUp);
-          saveColW();
+          persistColW(c);
         };
         capture(colhead, e);
         window.addEventListener('pointermove', onMove);
